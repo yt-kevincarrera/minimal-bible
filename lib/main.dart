@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'screens/home_screen.dart';
 import 'state/providers.dart';
@@ -84,7 +83,8 @@ class _BootScreen extends StatelessWidget {
           children: [
             Text(
               'La Biblia',
-              style: GoogleFonts.crimsonPro(
+              style: TextStyle(
+                fontFamily: 'CrimsonPro',
                 fontSize: 36,
                 fontWeight: FontWeight.w500,
                 color: colors.ink,
@@ -93,7 +93,8 @@ class _BootScreen extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               'Reina-Valera 1960',
-              style: GoogleFonts.inter(
+              style: TextStyle(
+                fontFamily: 'Inter',
                 fontSize: 12,
                 letterSpacing: 1.5,
                 color: colors.inkSoft,

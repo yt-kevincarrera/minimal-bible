@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
+// Familias de fuentes empaquetadas como assets (ver pubspec.yaml). Antes se
+// servían vía google_fonts (descarga + caché en red); ahora van offline.
+const _sans = 'Inter';
+const _serif = 'CrimsonPro';
 
 class AppPalette {
   // Light — warm paper
@@ -97,82 +101,77 @@ ThemeData _buildTheme({
     outlineVariant: divider,
   );
 
-  final sansBase = GoogleFonts.interTextTheme(
-    isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme,
-  );
-
-  final serif = GoogleFonts.crimsonPro;
+  final sansBase = (isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme)
+      .apply(fontFamily: _sans);
 
   final textTheme = sansBase.copyWith(
-    displayLarge: serif(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 36,
-        fontWeight: FontWeight.w500,
-        height: 1.15,
-        letterSpacing: -0.5,
-      ),
+    displayLarge: TextStyle(
+      fontFamily: _serif,
+      color: ink,
+      fontSize: 36,
+      fontWeight: FontWeight.w500,
+      height: 1.15,
+      letterSpacing: -0.5,
     ),
-    displayMedium: serif(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 28,
-        fontWeight: FontWeight.w500,
-        height: 1.2,
-      ),
+    displayMedium: TextStyle(
+      fontFamily: _serif,
+      color: ink,
+      fontSize: 28,
+      fontWeight: FontWeight.w500,
+      height: 1.2,
     ),
-    headlineSmall: serif(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 22,
-        fontWeight: FontWeight.w600,
-        height: 1.3,
-      ),
+    headlineSmall: TextStyle(
+      fontFamily: _serif,
+      color: ink,
+      fontSize: 22,
+      fontWeight: FontWeight.w600,
+      height: 1.3,
     ),
-    titleLarge: GoogleFonts.inter(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-      ),
+    titleLarge: TextStyle(
+      fontFamily: _sans,
+      color: ink,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0,
     ),
-    titleMedium: GoogleFonts.inter(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-      ),
+    titleMedium: TextStyle(
+      fontFamily: _sans,
+      color: ink,
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
     ),
-    bodyLarge: serif(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 19,
-        height: 1.65,
-        fontWeight: FontWeight.w400,
-      ),
+    bodyLarge: TextStyle(
+      fontFamily: _serif,
+      color: ink,
+      fontSize: 19,
+      height: 1.65,
+      fontWeight: FontWeight.w400,
     ),
-    bodyMedium: GoogleFonts.inter(
-      textStyle: TextStyle(color: ink, fontSize: 15, height: 1.45),
+    bodyMedium: TextStyle(
+      fontFamily: _sans,
+      color: ink,
+      fontSize: 15,
+      height: 1.45,
     ),
-    bodySmall: GoogleFonts.inter(
-      textStyle: TextStyle(color: inkSoft, fontSize: 13, height: 1.4),
+    bodySmall: TextStyle(
+      fontFamily: _sans,
+      color: inkSoft,
+      fontSize: 13,
+      height: 1.4,
     ),
-    labelLarge: GoogleFonts.inter(
-      textStyle: TextStyle(
-        color: ink,
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.2,
-      ),
+    labelLarge: TextStyle(
+      fontFamily: _sans,
+      color: ink,
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
     ),
-    labelSmall: GoogleFonts.inter(
-      textStyle: TextStyle(
-        color: inkSoft,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 1.0,
-      ),
+    labelSmall: TextStyle(
+      fontFamily: _sans,
+      color: inkSoft,
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 1.0,
     ),
   );
 
@@ -199,7 +198,8 @@ ThemeData _buildTheme({
       elevation: 0,
       scrolledUnderElevation: 0,
       iconTheme: IconThemeData(color: ink),
-      titleTextStyle: GoogleFonts.inter(
+      titleTextStyle: TextStyle(
+        fontFamily: _sans,
         color: ink,
         fontSize: 17,
         fontWeight: FontWeight.w600,
@@ -215,7 +215,7 @@ ThemeData _buildTheme({
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: surface,
-      hintStyle: GoogleFonts.inter(color: inkSoft, fontSize: 15),
+      hintStyle: TextStyle(fontFamily: _sans, color: inkSoft, fontSize: 15),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
