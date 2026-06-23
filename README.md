@@ -50,17 +50,29 @@ Sin esos archivos la app compila y abre, pero no mostrará texto.
 ## 🏗️ Build
 
 ```bash
-flutter build apk --release      # Android
+flutter build apk --release      # Android (APK universal, ~61 MB)
 flutter build web                # Web (PWA)
 ```
+
+Para un APK **mucho más liviano** (~26-32 MB), sepáralo por arquitectura — el
+universal carga 3 arquitecturas a la vez:
+
+```bash
+flutter build apk --release --split-per-abi
+# o, en Windows:
+powershell -ExecutionPolicy Bypass -File tools/build_apk.ps1
+```
+
+Genera un APK por arquitectura; reparte el de **`arm64-v8a`** (casi todos los
+teléfonos modernos) o el `armeabi-v7a` para equipos viejos de 32 bits.
 
 La base de datos SQLite se construye en el dispositivo desde los JSON la primera
 vez que se abre la app; después todo es local.
 
 ## 🧱 Stack
 
-Flutter · Riverpod · sqflite + sqlite3 (FTS5) · google_fonts · share_plus ·
-wakelock_plus
+Flutter · Riverpod · sqflite + sqlite3 (FTS5) · fuentes empaquetadas (offline) ·
+share_plus · wakelock_plus
 
 ## 📄 Licencia
 
