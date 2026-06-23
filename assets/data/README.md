@@ -1,40 +1,68 @@
-# Datos de la app
+# Datos de la app (cómo dejarla funcionando)
 
-Esta carpeta contiene los datos que la app empaqueta. **Dos archivos no están
-en el repositorio** por tratarse de texto con copyright; debes aportarlos tú:
+La app necesita dos archivos en esta carpeta que **no están en el repositorio**
+por derechos de autor. Aquí tienes la forma fácil y la manual.
 
-## 1. `rv1960.json` (texto bíblico)
+| Archivo | ¿Obligatorio? | Qué es |
+|---|---|---|
+| `rv1960.json` | Sí | El texto bíblico |
+| `headings.json` | No (opcional) | Títulos de sección (perícopas) |
 
-Mapa JSON `{ "Libro": { "capítulo": { "versículo": "texto" } } }`.
+---
+
+## ✅ Forma fácil (recomendada) — 2 comandos
+
+Desde la **raíz del proyecto**, en PowerShell (Windows):
+
+```powershell
+# 1) Texto bíblico (traducción de dominio público) → assets/data/rv1960.json
+powershell -ExecutionPolicy Bypass -File tools/fetch_bible.ps1
+
+# 2) Títulos de sección → assets/data/headings.json
+powershell -ExecutionPolicy Bypass -File tools/fetch_headings.ps1
+```
+
+Listo: `flutter run` y a leer. Los scripts descargan de la API gratuita
+[bible.helloao.org](https://bible.helloao.org) y **escriben los archivos con los
+nombres de libro exactos** que la app espera (incluido el detalle de los
+Evangelios: `S. Mateo`, `S.Juan`, etc.), así que no tienes que pelearte con eso.
+
+- `fetch_bible.ps1` usa por defecto **Reina-Valera Gómez** (`spa_rvg`, libre).
+  Para otra: `... fetch_bible.ps1 -translation spa_r09` (Reina-Valera 1909).
+- ¿No usas Windows? Los scripts son cortos; replicar su lógica en bash/Python es
+  trivial (es bajar JSON y reescribirlo). PRs bienvenidos.
+
+---
+
+## 🛠️ Forma manual (si traes tu propio texto)
+
+### `rv1960.json`
+Mapa `{ "Libro": { "capítulo": { "versículo": "texto" } } }`:
 
 ```json
 {
-  "Génesis": {
-    "1": {
-      "1": "En el principio creó Dios los cielos y la tierra.",
-      "2": "Y la tierra estaba desordenada y vacía..."
-    }
-  },
+  "Génesis": { "1": { "1": "En el principio creó Dios...", "2": "..." } },
   "S. Mateo": { "1": { "1": "..." } }
 }
 ```
 
-Los nombres de libro deben coincidir con las claves usadas en
-[`lib/data/books.dart`](../../lib/data/books.dart) (campo `jsonKey`).
-Puedes usar cualquier traducción en **dominio público** (Reina-Valera 1909,
-Reina-Valera Gómez, etc.) — fuentes: [bible.helloao.org](https://bible.helloao.org),
-[scrollmapper/bible_databases](https://github.com/scrollmapper/bible_databases).
+⚠️ Las **claves de libro deben coincidir exactamente** con el campo `jsonKey`
+de [`lib/data/books.dart`](../../lib/data/books.dart). Ojo con los Evangelios:
+`S. Mateo`, `S. Marcos`, `S. Lucas`, `S.Juan` (este último sin espacio).
 
-## 2. `headings.json` (títulos de sección, opcional)
-
+### `headings.json`
 Mapa `{ "bookId": { "capítulo": { "versículo": "título" } } }`, donde `bookId`
-es el id 1–66 de `books.dart`.
+es el id **1–66** de `books.dart`:
 
 ```json
-{ "1": { "1": { "1": "La creación" } }, "43": { "3": { "16": "..." } } }
+{ "1": { "1": { "1": "La creación" } } }
 ```
 
-Para generarlo automáticamente desde una fuente con encabezados, mira el script
-[`tools/fetch_headings.ps1`](../../tools/fetch_headings.ps1).
+> Sin `rv1960.json` la app compila y abre, pero no mostrará texto.
 
-> Sin estos archivos la app compila y abre, pero no mostrará texto.
+---
+
+## 📩 ¿Lo quieres directo, sin complicarte?
+
+Escríbeme y con gusto te paso el paquete de datos listo:
+**Kevin Carrera — kevin.ccdo@gmail.com**

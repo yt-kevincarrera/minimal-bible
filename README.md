@@ -27,25 +27,25 @@ Requiere [Flutter](https://docs.flutter.dev/get-started/install) (canal stable).
 
 ```bash
 flutter pub get
-# Aporta los datos bíblicos (ver abajo)
+
+# Aporta los datos bíblicos (dominio público) con un par de scripts:
+powershell -ExecutionPolicy Bypass -File tools/fetch_bible.ps1     # texto
+powershell -ExecutionPolicy Bypass -File tools/fetch_headings.ps1  # títulos (opcional)
+
 flutter run
 ```
 
 ### Datos bíblicos (obligatorio)
 
 Por respeto a los derechos de autor, **el texto bíblico no se incluye** en este
-repositorio. Debes colocar tus propios datos en `assets/data/`:
+repositorio. Los scripts de arriba lo descargan de una fuente de **dominio
+público** y lo dejan con el formato y los nombres de libro exactos que la app
+espera — guía completa (y forma manual) en
+[`assets/data/README.md`](assets/data/README.md).
 
-- `assets/data/rv1960.json` — el texto (cualquier traducción; idealmente de
-  **dominio público**).
-- `assets/data/headings.json` — títulos de sección (opcional).
+Sin esos archivos la app compila y abre, pero no mostrará texto.
 
-El formato y de dónde obtenerlos está documentado en
-[`assets/data/README.md`](assets/data/README.md). Sin estos archivos la app
-compila y abre, pero no mostrará texto.
-
-> Sugerencia de fuentes libres: [bible.helloao.org](https://bible.helloao.org),
-> [scrollmapper/bible_databases](https://github.com/scrollmapper/bible_databases).
+> ¿Lo quieres directo? Escríbeme: **kevin.ccdo@gmail.com**.
 
 ## 🏗️ Build
 
