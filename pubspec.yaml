@@ -20,7 +20,6 @@ dependencies:
   path_provider: ^2.1.5
   path: ^1.9.0
   flutter_riverpod: ^2.6.1
-  google_fonts: ^6.2.1
   shared_preferences: ^2.3.3
   flutter_slidable: ^4.0.0
   share_plus: ^10.1.4
@@ -46,3 +45,12 @@ flutter:
   assets:
     - assets/data/rv1960.json
     - assets/data/headings.json
+  # Fuentes empaquetadas (offline, sin descarga en tiempo de ejecución).
+  # Son variables (eje wght), así que un solo archivo cubre todos los pesos.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+    - family: CrimsonPro
+      fonts:
+        - asset: assets/fonts/CrimsonPro.ttf

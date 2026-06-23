@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../data/books.dart';
 import '../data/models.dart';
@@ -94,7 +93,8 @@ class ChaptersScreen extends ConsumerWidget {
                             ),
                             child: Text(
                               '$ch',
-                              style: GoogleFonts.crimsonPro(
+                              style: TextStyle(
+                                fontFamily: 'CrimsonPro',
                                 fontSize: 20,
                                 fontWeight: isLast
                                     ? FontWeight.w700
