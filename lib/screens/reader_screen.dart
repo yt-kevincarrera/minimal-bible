@@ -719,10 +719,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _showReadingSheet() {
     showModalBottomSheet(
       context: context,
-      showDragHandle: true,
-      // Ajusta la altura al contenido (hasta 85% de pantalla) y deja que se
-      // desplace si no cabe, en vez de recortarse a media pantalla sin aviso.
       isScrollControlled: true,
+      // Sin fondo ni velo: así el capítulo se sigue viendo detrás y los
+      // cambios (tamaño, interlineado, justificado) se notan en tiempo real
+      // mientras el panel ocupa solo media pantalla.
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.transparent,
       builder: (_) => const _ReadingOptionsSheet(),
     );
   }
@@ -1244,15 +1246,16 @@ class _ReadingOptionsSheet extends ConsumerWidget {
     final theme = Theme.of(context);
     final colors = context.appColors;
 
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
-        ),
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            child: Column(
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.5,
+      minChildSize: 0.32,
+      maxChildSize: 0.92,
+      snap: true,
+      snapSizes: const [0.5, 0.92],
+      builder: (context, scrollController) => _ReadingSheetFrame(
+        controller: scrollController,
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1431,9 +1434,114 @@ class _ReadingOptionsSheet extends ConsumerWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Marco del panel de opciones: superficie redondeada arriba, agarradera para
+/// arrastrar y un degradado inferior que avisa cuando hay más opciones abajo.
+class _ReadingSheetFrame extends StatefulWidget {
+  final ScrollController controller;
+  final Widget child;
+  const _ReadingSheetFrame({required this.controller, required this.child});
+
+  @override
+  State<_ReadingSheetFrame> createState() => _ReadingSheetFrameState();
+}
+
+class _ReadingSheetFrameState extends State<_ReadingSheetFrame> {
+  bool _atBottom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onScroll);
+    // Tras el primer layout ya se conoce si hay contenido para desplazar.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onScroll);
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!mounted || !widget.controller.hasClients) return;
+    final pos = widget.controller.position;
+    final atBottom = pos.pixels >= pos.maxScrollExtent - 4;
+    if (atBottom != _atBottom) setState(() => _atBottom = atBottom);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Agarradera para arrastrar el panel hacia arriba/abajo.
+          Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: 4),
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: colors.inkSoft.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-        ),
+          Expanded(
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  controller: widget.controller,
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  child: widget.child,
+                ),
+                // Degradado inferior: solo mientras se pueda seguir bajando.
+                if (!_atBottom)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      child: Container(
+                        height: 28,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              theme.scaffoldBackgroundColor.withValues(
+                                alpha: 0,
+                              ),
+                              theme.scaffoldBackgroundColor,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

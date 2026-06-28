@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/books.dart';
 import '../data/models.dart';
+import '../data/reference.dart';
 import '../state/providers.dart';
 import '../theme.dart';
+import 'chapters_screen.dart';
 import 'reader_screen.dart';
 import 'topic_screen.dart';
 
@@ -164,6 +167,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
             tooltip: 'Filtros de búsqueda',
             onPressed: () => setState(() => _showFilters = !_showFilters),
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Abreviaturas y cómo buscar una cita',
+            onPressed: () => showModalBottomSheet(
+              context: context,
+              showDragHandle: true,
+              isScrollControlled: true,
+              builder: (_) => const _AbbreviationsSheet(),
+            ),
           ),
         ],
       ),
@@ -378,75 +391,37 @@ class _HitTile extends ConsumerWidget {
   }
 }
 
-/// Normaliza para comparar nombres de libro: minúsculas, sin tildes ni signos.
-String _normRef(String s) => s
-    .toLowerCase()
-    .trim()
-    .replaceAll(RegExp('[áàä]'), 'a')
-    .replaceAll(RegExp('[éèë]'), 'e')
-    .replaceAll(RegExp('[íìï]'), 'i')
-    .replaceAll(RegExp('[óòö]'), 'o')
-    .replaceAll(RegExp('[úùü]'), 'u')
-    .replaceAll('ñ', 'n')
-    .replaceAll(RegExp('[^a-z0-9]'), '');
-
-/// Interpreta una cita tipo "Jn 3:16", "Juan 3", "1 Co 13:4" → libro+cap+verso.
-/// Devuelve null si no parece una referencia válida.
-(Book, int, int?)? parseReference(String input, List<Book> books) {
-  final m = RegExp(
-    r'^\s*([0-9]?\s*[^\d:]+?)\s+(\d+)(?::(\d+))?\s*$',
-    unicode: true,
-  ).firstMatch(input);
-  if (m == null) return null;
-  final bookPart = _normRef(m.group(1)!);
-  if (bookPart.isEmpty) return null;
-  final chapter = int.tryParse(m.group(2)!);
-  if (chapter == null) return null;
-  final verse = m.group(3) == null ? null : int.tryParse(m.group(3)!);
-
-  Book? exact;
-  Book? prefix;
-  for (final b in books) {
-    final n = _normRef(b.name);
-    final a = _normRef(b.abbr);
-    if (n == bookPart || a == bookPart) {
-      exact = b;
-      break;
-    }
-    if (prefix == null && (n.startsWith(bookPart) || a.startsWith(bookPart))) {
-      prefix = b;
-    }
-  }
-  final book = exact ?? prefix;
-  if (book == null) return null;
-  if (chapter < 1 || chapter > book.chapterCount) return null;
-  return (book, chapter, verse);
-}
-
 /// Tarjeta "Ir a {cita}" que aparece arriba cuando la consulta es una
-/// referencia y salta directo al lector.
+/// referencia. Con capítulo salta al lector; con solo el libro abre la
+/// pantalla de selección de capítulos.
 class _GotoTile extends StatelessWidget {
-  final (Book, int, int?) target;
+  final Reference target;
   const _GotoTile({required this.target});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final theme = Theme.of(context);
-    final (book, chapter, verse) = target;
-    final label = verse == null
-        ? '${book.name} $chapter'
-        : '${book.name} $chapter:$verse';
+    final book = target.book;
+    final chapter = target.chapter;
+    final verse = target.verse;
+    final label = chapter == null
+        ? book.name
+        : (verse == null
+              ? '${book.name} $chapter'
+              : '${book.name} $chapter:$verse');
     return Material(
       color: colors.accent.withValues(alpha: 0.10),
       child: InkWell(
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => ReaderScreen(
-              bookId: book.id,
-              chapter: chapter,
-              verseToHighlight: verse,
-            ),
+            builder: (_) => chapter == null
+                ? ChaptersScreen(book: book)
+                : ReaderScreen(
+                    bookId: book.id,
+                    chapter: chapter,
+                    verseToHighlight: verse,
+                  ),
           ),
         ),
         child: Padding(
@@ -576,6 +551,121 @@ class _EmptyState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Hoja con la ayuda de abreviaturas y el formato de cita. La gente no tiene
+/// por qué saberse las abreviaturas, así que aquí las ve todas.
+class _AbbreviationsSheet extends StatelessWidget {
+  const _AbbreviationsSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = context.appColors;
+    final old = canonicalBooks.where((b) => b.testament == testamentOld);
+    final neu = canonicalBooks.where((b) => b.testament == testamentNew);
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          children: [
+            Text('Cómo ir a una cita', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            _formatRow(theme, colors, 'Jn 3:16', 'capítulo y versículo'),
+            _formatRow(theme, colors, 'Juan 3', 'un capítulo entero'),
+            _formatRow(theme, colors, '1 Co 13', 'libros con número'),
+            _formatRow(theme, colors, 'Jn', 'solo el libro → elegir capítulo'),
+            const SizedBox(height: 8),
+            Text(
+              'Puedes escribir el nombre completo o la abreviatura. No '
+              'importan las mayúsculas ni las tildes.',
+              style: theme.textTheme.bodySmall?.copyWith(color: colors.inkSoft),
+            ),
+            const SizedBox(height: 20),
+            _abbrHeader(theme, colors, 'ANTIGUO TESTAMENTO'),
+            for (final b in old) _abbrRow(theme, colors, b),
+            const SizedBox(height: 16),
+            _abbrHeader(theme, colors, 'NUEVO TESTAMENTO'),
+            for (final b in neu) _abbrRow(theme, colors, b),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _formatRow(
+    ThemeData theme,
+    AppColors colors,
+    String example,
+    String desc,
+  ) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: colors.accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            example,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: colors.accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            desc,
+            style: theme.textTheme.bodyMedium?.copyWith(color: colors.ink),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _abbrHeader(ThemeData theme, AppColors colors, String label) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      label,
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: colors.inkSoft,
+        letterSpacing: 1.6,
+      ),
+    ),
+  );
+
+  Widget _abbrRow(ThemeData theme, AppColors colors, BookDef b) {
+    final aliases = bookGotoAliases[b.id] ?? const <String>[];
+    final alias = aliases.isNotEmpty ? aliases.first : b.abbr;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              alias,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(b.name, style: theme.textTheme.bodyMedium),
+          ),
+        ],
       ),
     );
   }
