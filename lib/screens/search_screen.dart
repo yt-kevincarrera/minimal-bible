@@ -84,70 +84,133 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
         ],
       ),
-      body: Builder(
-        builder: (context) {
-          if (query.trim().length < 2) {
-            return _EmptyState(
-              icon: Icons.search,
-              title: 'Escribe al menos 2 letras',
-              subtitle:
-                  'Busca por palabras o frases. Tilde opcional: "jesus" encuentra "Jesús".',
-            );
-          }
-          return resultsAsync.when(
-            loading: () => Column(
-              children: [
-                LinearProgressIndicator(
-                  minHeight: 2,
-                  color: colors.accent,
-                  backgroundColor: colors.divider,
-                ),
-                const Expanded(child: SizedBox.shrink()),
-              ],
-            ),
-            error: (e, _) => Center(child: Text('Error: $e')),
-            data: (hits) {
-              if (hits.isEmpty) {
-                return _EmptyState(
-                  icon: Icons.search_off_outlined,
-                  title: 'Sin resultados',
-                  subtitle: 'Prueba con otras palabras.',
-                );
-              }
-              return Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Column(
+      body: Column(
+        children: [
+          const _SearchFilters(),
+          Divider(height: 1, color: colors.divider),
+          Expanded(
+            child: Builder(
+              builder: (context) {
+                if (query.trim().length < 2) {
+                  return _EmptyState(
+                    icon: Icons.search,
+                    title: 'Escribe al menos 2 letras',
+                    subtitle:
+                        'Busca por palabras o frases. Tilde opcional: "jesus" encuentra "Jesús".',
+                  );
+                }
+                return resultsAsync.when(
+                  loading: () => Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '${hits.length} resultado${hits.length == 1 ? '' : 's'}',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: colors.inkSoft,
-                              letterSpacing: 1.4,
-                            ),
-                          ),
-                        ),
+                      LinearProgressIndicator(
+                        minHeight: 2,
+                        color: colors.accent,
+                        backgroundColor: colors.divider,
                       ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: ListView.separated(
-                          itemCount: hits.length,
-                          separatorBuilder: (_, _) =>
-                              Divider(height: 1, color: colors.divider),
-                          itemBuilder: (_, i) => _HitTile(hit: hits[i]),
-                        ),
-                      ),
+                      const Expanded(child: SizedBox.shrink()),
                     ],
                   ),
-                ),
-              );
-            },
-          );
-        },
+                  error: (e, _) => Center(child: Text('Error: $e')),
+                  data: (hits) {
+                    if (hits.isEmpty) {
+                      return _EmptyState(
+                        icon: Icons.search_off_outlined,
+                        title: 'Sin resultados',
+                        subtitle: 'Prueba con otras palabras o cambia el filtro.',
+                      );
+                    }
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 720),
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '${hits.length} resultado${hits.length == 1 ? '' : 's'}',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: colors.inkSoft,
+                                    letterSpacing: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: ListView.separated(
+                                itemCount: hits.length,
+                                separatorBuilder: (_, _) =>
+                                    Divider(height: 1, color: colors.divider),
+                                itemBuilder: (_, i) => _HitTile(hit: hits[i]),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fila de filtros de la búsqueda avanzada: alcance (toda la Biblia / Antiguo
+/// / Nuevo) y modo frase exacta. Visible siempre, para que se descubra.
+class _SearchFilters extends ConsumerWidget {
+  const _SearchFilters();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.appColors;
+    final scope = ref.watch(searchScopeProvider);
+    final phrase = ref.watch(searchPhraseProvider);
+
+    Widget scopeChip(SearchScope s, String label) => Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: scope == s,
+        showCheckmark: false,
+        selectedColor: colors.accent.withValues(alpha: 0.18),
+        side: BorderSide(color: scope == s ? colors.accent : colors.divider),
+        onSelected: (_) =>
+            ref.read(searchScopeProvider.notifier).state = s,
+      ),
+    );
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          scopeChip(SearchScope.all, 'Toda la Biblia'),
+          scopeChip(SearchScope.oldT, 'Antiguo'),
+          scopeChip(SearchScope.newT, 'Nuevo'),
+          Container(
+            width: 1,
+            height: 26,
+            color: colors.divider,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+          ),
+          const SizedBox(width: 4),
+          FilterChip(
+            label: const Text('Frase exacta'),
+            selected: phrase,
+            showCheckmark: true,
+            selectedColor: colors.accent.withValues(alpha: 0.18),
+            checkmarkColor: colors.accent,
+            side: BorderSide(color: phrase ? colors.accent : colors.divider),
+            onSelected: (v) =>
+                ref.read(searchPhraseProvider.notifier).state = v,
+          ),
+        ],
       ),
     );
   }

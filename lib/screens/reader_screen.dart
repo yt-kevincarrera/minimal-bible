@@ -710,6 +710,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      // Ajusta la altura al contenido (hasta 85% de pantalla) y deja que se
+      // desplace si no cabe, en vez de recortarse a media pantalla sin aviso.
+      isScrollControlled: true,
       builder: (_) => const _ReadingOptionsSheet(),
     );
   }
@@ -1223,12 +1226,22 @@ class _ReadingOptionsSheet extends ConsumerWidget {
     final colors = context.appColors;
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'Opciones de lectura',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 18),
             Text(
               'TAMAÑO DE LETRA',
               style: theme.textTheme.labelSmall?.copyWith(
@@ -1337,6 +1350,8 @@ class _ReadingOptionsSheet extends ConsumerWidget {
               ],
             ),
           ],
+            ),
+          ),
         ),
       ),
     );
