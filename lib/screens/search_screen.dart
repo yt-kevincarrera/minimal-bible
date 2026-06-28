@@ -19,6 +19,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
   Timer? _debounce;
+  bool _showFilters = false;
 
   @override
   void initState() {
@@ -47,6 +48,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final colors = context.appColors;
     final query = ref.watch(searchQueryProvider);
     final resultsAsync = ref.watch(searchResultsProvider);
+    final filtersActive =
+        ref.watch(searchScopeProvider) != SearchScope.all ||
+        ref.watch(searchPhraseProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -82,12 +86,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 setState(() {});
               },
             ),
+          IconButton(
+            icon: Icon(
+              _showFilters ? Icons.tune : Icons.tune_outlined,
+              color: filtersActive ? colors.accent : null,
+            ),
+            tooltip: 'Filtros de búsqueda',
+            onPressed: () => setState(() => _showFilters = !_showFilters),
+          ),
         ],
       ),
       body: Column(
         children: [
-          const _SearchFilters(),
-          Divider(height: 1, color: colors.divider),
+          // Filtros ocultos por defecto (no invasivos): se abren con el icono.
+          if (_showFilters) ...[
+            const _SearchFilters(),
+            Divider(height: 1, color: colors.divider),
+          ],
           Expanded(
             child: Builder(
               builder: (context) {
