@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
@@ -112,6 +114,36 @@ class TtsController extends Notifier<TtsState> {
   }
 
   double _engineRate(double appRate) => (appRate * 0.5).clamp(0.0, 1.0);
+
+  static const _platform = MethodChannel('minimal_bible/tts');
+
+  /// En Android podemos llevar al usuario a instalar la voz del sistema.
+  bool get canOpenVoiceSettings =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// ¿Hay alguna voz en español instalada y usable? `isLanguageAvailable`
+  /// devuelve false cuando el idioma existe pero faltan los datos de voz, que
+  /// es justo el caso en el que queremos mandar a ajustes.
+  Future<bool> spanishAvailable() async {
+    final tts = _tts ?? FlutterTts();
+    try {
+      for (final l in const ['es-ES', 'es-US', 'es-MX', 'es-419', 'es']) {
+        if (await tts.isLanguageAvailable(l) == true) return true;
+      }
+      return false;
+    } catch (_) {
+      return true; // si no se puede verificar, no bloqueamos la lectura
+    }
+  }
+
+  /// Abre los ajustes de Texto a voz del sistema (Android).
+  Future<void> openVoiceSettings() async {
+    try {
+      await _platform.invokeMethod('openTtsSettings');
+    } catch (_) {
+      // Sin canal nativo (otras plataformas): no-op.
+    }
+  }
 
   /// Empieza a leer [verses] del capítulo dado, desde [fromIndex].
   Future<void> start(

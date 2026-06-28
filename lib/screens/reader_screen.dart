@@ -716,6 +716,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Future<void> _startTts(List<Verse> verses) async {
     if (verses.isEmpty) return;
+    // Si no hay voz en español instalada, ofrece ir a ajustes a instalarla.
+    final hasVoice = await _ttsCtrl.spanishAvailable();
+    if (!hasVoice) {
+      if (mounted) await _promptInstallVoice();
+      return;
+    }
     // Arranca desde el versículo visible actualmente, si se conoce.
     final from = _activeVerse == null
         ? 0
@@ -726,6 +732,36 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       verses,
       fromIndex: from < 0 ? 0 : from,
     );
+  }
+
+  Future<void> _promptInstallVoice() async {
+    // En plataformas sin acceso a ajustes de voz, solo avisamos.
+    if (!_ttsCtrl.canOpenVoiceSettings) {
+      _snack('No hay una voz en español disponible para la lectura.');
+      return;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Falta la voz en español'),
+        content: const Text(
+          'Tu teléfono no tiene una voz en español instalada para la lectura '
+          'en voz alta. Puedes instalarla gratis desde los ajustes de '
+          '“Texto a voz” del sistema.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Abrir ajustes'),
+          ),
+        ],
+      ),
+    );
+    if (go == true) await _ttsCtrl.openVoiceSettings();
   }
 }
 
