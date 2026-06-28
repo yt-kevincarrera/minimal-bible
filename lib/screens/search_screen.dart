@@ -7,6 +7,7 @@ import '../data/models.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import 'reader_screen.dart';
+import 'topic_screen.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -60,7 +61,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         title: 'Escribe al menos 2 letras',
         subtitle:
             'Busca por palabras o frases (tilde opcional: "jesus" encuentra '
-            '"Jesús"). También puedes escribir una cita como "Jn 3:16".',
+            '"Jesús"). También una cita como "Jn 3:16" o un tema como '
+            '"ansiedad" o "parábola del sembrador".',
       );
     }
     final colors = context.appColors;
@@ -114,6 +116,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ref.watch(searchPhraseProvider);
     final books = ref.watch(booksProvider).valueOrNull ?? const <Book>[];
     final goto = books.isEmpty ? null : parseReference(query, books);
+    final topics = ref.watch(topicsProvider).valueOrNull ?? const <Topic>[];
+    final topicHits = query.trim().length >= 2
+        ? matchTopics(query, topics)
+        : const <Topic>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -171,6 +177,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           // "Ir a cita" cuando la consulta es una referencia (Jn 3:16).
           if (goto != null) ...[
             _GotoTile(target: goto),
+            Divider(height: 1, color: colors.divider),
+          ],
+          // Temas/pasajes que coinciden (extra sobre la búsqueda normal).
+          if (topicHits.isNotEmpty) ...[
+            _TopicHits(topics: topicHits),
             Divider(height: 1, color: colors.divider),
           ],
           Expanded(
@@ -466,6 +477,70 @@ class _GotoTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Lista compacta de temas/pasajes que coinciden con la consulta.
+class _TopicHits extends StatelessWidget {
+  final List<Topic> topics;
+  const _TopicHits({required this.topics});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          child: Text(
+            'TEMAS',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colors.inkSoft,
+              letterSpacing: 1.4,
+            ),
+          ),
+        ),
+        for (final t in topics)
+          InkWell(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => TopicScreen(topic: t)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(Icons.auto_stories_outlined,
+                      size: 20, color: colors.accent),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t.title,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          '${t.category} · ${t.refs.length} versículo'
+                          '${t.refs.length == 1 ? '' : 's'}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colors.inkSoft,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 20, color: colors.inkSoft),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
