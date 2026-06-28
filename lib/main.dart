@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'screens/home_screen.dart';
 import 'state/providers.dart';
+import 'state/tts_controller.dart';
 import 'theme.dart';
 
 void main() {
@@ -56,6 +57,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       ref.read(tabIndexProvider.notifier).load();
       ref.read(scrollStoreProvider.notifier).load();
       ref.read(keepAwakeProvider.notifier).load();
+      ref.read(ttsRateProvider.notifier).load();
     });
   }
 

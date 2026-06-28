@@ -14,6 +14,8 @@ Hecha con Flutter por **Kevin Carrera**.
 - 🗂️ Libros agrupados por Antiguo/Nuevo Testamento, con sinopsis y navegación
   por capítulos.
 - 🎚️ Navegador lateral de versículos (deslizar para saltar, con vista previa).
+- 🔊 Lectura en voz alta con el motor TTS del sistema: play/pausa, resaltado del
+  versículo en curso y velocidad ajustable (0.5×–2×).
 - ⭐ Favoritos, **bibliotecas** (colecciones) y **colores** para marcar
   versículos; se guardan y agrupan por lote.
 - 📊 Estadísticas de lectura: progreso por libro, racha, tiempo, calendario,
@@ -72,7 +74,7 @@ vez que se abre la app; después todo es local.
 ## 🧱 Stack
 
 Flutter · Riverpod · sqflite + sqlite3 (FTS5) · fuentes empaquetadas (offline) ·
-share_plus · wakelock_plus
+flutter_tts · share_plus · wakelock_plus
 
 ## 📄 Licencia
 

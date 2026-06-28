@@ -10,6 +10,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../data/models.dart';
 import '../state/providers.dart';
+import '../state/tts_controller.dart';
 import '../theme.dart';
 import '../widgets/add_to_playlist_sheet.dart';
 import 'chapters_screen.dart';
@@ -62,11 +63,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int _lastActiveCalc = 0;
   SharedPreferences? _prefs;
   final DateTime _openedAt = DateTime.now();
+  late final TtsController _ttsCtrl;
+  int? _lastSpokenVerse;
 
   @override
   void initState() {
     super.initState();
     _activeHighlight = widget.verseToHighlight;
+    _ttsCtrl = ref.read(ttsControllerProvider.notifier);
     _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollStore = ref.read(scrollStoreProvider.notifier);
@@ -159,6 +163,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   @override
   void dispose() {
+    // Detiene la lectura en voz alta al salir de este capítulo.
+    if (_ttsCtrl.state.isFor(widget.bookId, widget.chapter)) {
+      _ttsCtrl.stop();
+    }
     WakelockPlus.disable();
     _highlightTimer?.cancel();
     _saveTimer?.cancel();
@@ -446,6 +454,25 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final books = ref.watch(booksProvider).valueOrNull;
     final colors = context.appColors;
 
+    final ttsState = ref.watch(ttsControllerProvider);
+    final ttsHere = ttsState.isFor(widget.bookId, widget.chapter);
+    final speakingVerse = ttsHere ? ttsState.verse : null;
+
+    // Auto-scroll al versículo que se está leyendo.
+    ref.listen(ttsControllerProvider, (prev, next) {
+      if (!next.isFor(widget.bookId, widget.chapter)) {
+        _lastSpokenVerse = null;
+        return;
+      }
+      final v = next.verse;
+      if (v != null && v != _lastSpokenVerse) {
+        _lastSpokenVerse = v;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _scrollToVerse(v);
+        });
+      }
+    });
+
     return PopScope(
       canPop: !_selectionMode,
       onPopInvokedWithResult: (didPop, _) {
@@ -495,6 +522,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   orElse: () => const Text(''),
                 ),
                 actions: [
+                  IconButton(
+                    icon: Icon(
+                      ttsHere
+                          ? Icons.stop_circle_outlined
+                          : Icons.volume_up_outlined,
+                    ),
+                    tooltip: ttsHere ? 'Detener lectura' : 'Leer en voz alta',
+                    onPressed: () {
+                      if (ttsHere) {
+                        _ttsCtrl.stop();
+                      } else {
+                        final verses = chapterAsync.valueOrNull;
+                        if (verses != null) _startTts(verses);
+                      }
+                    },
+                  ),
                   IconButton(
                     icon: const Icon(Icons.tune),
                     tooltip: 'Opciones de lectura',
@@ -558,6 +601,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                     selectedIds: _selectedIds,
                                     selectionMode: _selectionMode,
                                     highlightVerse: _activeHighlight,
+                                    speakingVerse: speakingVerse,
                                     scale: scale,
                                   ),
                                 ),
@@ -601,6 +645,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     onColor: _applyColor,
                     onPlaylist: _addToPlaylist,
                   )
+                else if (ttsHere)
+                  _TtsBar(onStop: _ttsCtrl.stop)
                 else
                   _Footer(bookId: widget.bookId, chapter: widget.chapter),
               ],
@@ -667,6 +713,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       builder: (_) => const _ReadingOptionsSheet(),
     );
   }
+
+  Future<void> _startTts(List<Verse> verses) async {
+    if (verses.isEmpty) return;
+    // Arranca desde el versículo visible actualmente, si se conoce.
+    final from = _activeVerse == null
+        ? 0
+        : verses.indexWhere((v) => v.verse == _activeVerse);
+    await _ttsCtrl.start(
+      widget.bookId,
+      widget.chapter,
+      verses,
+      fromIndex: from < 0 ? 0 : from,
+    );
+  }
 }
 
 class _Block {
@@ -685,6 +745,7 @@ class _ChapterText extends StatelessWidget {
   final Set<int> selectedIds;
   final bool selectionMode;
   final int? highlightVerse;
+  final int? speakingVerse; // versículo que se está leyendo en voz alta
   final double scale;
 
   const _ChapterText({
@@ -697,6 +758,7 @@ class _ChapterText extends StatelessWidget {
     required this.selectedIds,
     required this.selectionMode,
     required this.highlightVerse,
+    required this.speakingVerse,
     required this.scale,
   });
 
@@ -737,13 +799,18 @@ class _ChapterText extends StatelessWidget {
     TextStyle? verseStyle(Verse v) {
       final selected = selectedIds.contains(v.id);
       final colorIdx = highlights[v.id];
-      if (!selected && colorIdx == null) return null;
+      final speaking = speakingVerse == v.verse;
+      if (!selected && colorIdx == null && !speaking) return null;
       // Selección: fondo de acento bien visible + subrayado sólido.
+      // Lectura en voz: tinte de acento más suave en el versículo actual.
       // Resaltado de color (cuando NO está seleccionado): su tinte.
       Paint? bg;
       if (selected) {
         bg = Paint()
           ..color = colors.accent.withValues(alpha: isDark ? 0.34 : 0.24);
+      } else if (speaking) {
+        bg = Paint()
+          ..color = colors.accent.withValues(alpha: isDark ? 0.26 : 0.16);
       } else if (colorIdx != null) {
         bg = Paint()
           ..color = highlightColorFor(
@@ -1003,6 +1070,110 @@ class _Action extends StatelessWidget {
   }
 }
 
+/// Barra de control de la lectura en voz alta (sustituye al pie de navegación
+/// mientras se está leyendo el capítulo).
+class _TtsBar extends ConsumerWidget {
+  final VoidCallback onStop;
+  const _TtsBar({required this.onStop});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.appColors;
+    final theme = Theme.of(context);
+    final st = ref.watch(ttsControllerProvider);
+    final rate = ref.watch(ttsRateProvider);
+    final ctrl = ref.read(ttsControllerProvider.notifier);
+    final playing = st.status == TtsStatus.playing;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.divider)),
+        color: theme.scaffoldBackgroundColor,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.stop),
+                tooltip: 'Detener',
+                color: colors.ink,
+                onPressed: onStop,
+              ),
+              IconButton(
+                icon: Icon(
+                  playing ? Icons.pause_circle : Icons.play_circle,
+                ),
+                iconSize: 34,
+                tooltip: playing ? 'Pausar' : 'Reanudar',
+                color: colors.accent,
+                onPressed: ctrl.toggle,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  st.verse != null
+                      ? 'Leyendo · versículo ${st.verse}'
+                      : 'Lectura en voz alta',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.inkSoft,
+                  ),
+                ),
+              ),
+              PopupMenuButton<double>(
+                tooltip: 'Velocidad',
+                initialValue: rate,
+                onSelected: ctrl.setRate,
+                itemBuilder: (_) => [
+                  for (final s in const [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0])
+                    PopupMenuItem(value: s, child: Text(_fmtRate(s))),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: colors.divider),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.speed, size: 16, color: colors.accent),
+                      const SizedBox(width: 5),
+                      Text(
+                        _fmtRate(rate),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: colors.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "1.25x", "1x", "0.5x" — sin ceros sobrantes.
+String _fmtRate(double r) {
+  final s = r
+      .toStringAsFixed(2)
+      .replaceAll(RegExp(r'0+$'), '')
+      .replaceAll(RegExp(r'\.$'), '');
+  return '${s}x';
+}
+
 class _ReadingOptionsSheet extends ConsumerWidget {
   const _ReadingOptionsSheet();
 
@@ -1011,6 +1182,7 @@ class _ReadingOptionsSheet extends ConsumerWidget {
     final scale = ref.watch(fontScaleProvider);
     final notifier = ref.read(fontScaleProvider.notifier);
     final keepAwake = ref.watch(keepAwakeProvider);
+    final rate = ref.watch(ttsRateProvider);
     final theme = Theme.of(context);
     final colors = context.appColors;
 
@@ -1090,6 +1262,43 @@ class _ReadingOptionsSheet extends ConsumerWidget {
                 ref.read(keepAwakeProvider.notifier).set(v);
                 WakelockPlus.toggle(enable: v);
               },
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'VELOCIDAD DE VOZ',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.inkSoft,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.speed, color: colors.inkSoft),
+                Expanded(
+                  child: Slider(
+                    value: rate,
+                    min: TtsRateNotifier.minRate,
+                    max: TtsRateNotifier.maxRate,
+                    divisions: 6,
+                    activeColor: colors.accent,
+                    inactiveColor: colors.divider,
+                    label: _fmtRate(rate),
+                    onChanged: (v) =>
+                        ref.read(ttsControllerProvider.notifier).setRate(v),
+                  ),
+                ),
+                SizedBox(
+                  width: 46,
+                  child: Text(
+                    _fmtRate(rate),
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: colors.ink,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
