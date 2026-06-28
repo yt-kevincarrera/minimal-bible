@@ -80,6 +80,11 @@ class TtsController extends Notifier<TtsState> {
     return const TtsState();
   }
 
+  /// ¿Se está leyendo en voz alta el capítulo indicado? Expone el estado de
+  /// forma pública para no acceder a [state] desde fuera del notifier.
+  bool isReadingChapter(int bookId, int chapter) =>
+      state.isFor(bookId, chapter);
+
   Future<void> _ensure() async {
     if (_tts != null) return;
     final tts = FlutterTts();

@@ -170,7 +170,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void dispose() {
     // Detiene la lectura en voz alta al salir de este capítulo.
-    if (_ttsCtrl.state.isFor(widget.bookId, widget.chapter)) {
+    if (_ttsCtrl.isReadingChapter(widget.bookId, widget.chapter)) {
       _ttsCtrl.stop();
     }
     WakelockPlus.disable();
