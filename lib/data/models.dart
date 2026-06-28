@@ -46,6 +46,33 @@ class Verse {
   );
 }
 
+/// Tema o pasaje del índice curado (assets/data/topics.json): un título con
+/// sinónimos y una lista de referencias [bookId, chapter, verse].
+class Topic {
+  final String title;
+  final String category;
+  final List<String> aliases;
+  final List<List<int>> refs;
+
+  const Topic({
+    required this.title,
+    required this.category,
+    required this.aliases,
+    required this.refs,
+  });
+
+  factory Topic.fromJson(Map<String, dynamic> j) => Topic(
+    title: j['title'] as String,
+    category: (j['category'] as String?) ?? 'Temas',
+    aliases:
+        (j['aliases'] as List?)?.map((e) => e.toString()).toList() ??
+        const [],
+    refs: (j['refs'] as List)
+        .map((r) => (r as List).map((e) => e as int).toList())
+        .toList(),
+  );
+}
+
 class SearchHit {
   final int bookId;
   final String bookName;

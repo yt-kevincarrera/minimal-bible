@@ -12,6 +12,9 @@ Hecha con Flutter por **Kevin Carrera**.
 - 🔎 Búsqueda instantánea con **SQLite FTS5** (ignora tildes: "jesus" encuentra
   "Jesús"), totalmente offline. Con filtros opcionales (alcance, frase exacta),
   historial de búsquedas e **ir a cita** directa escribiendo p. ej. `Jn 3:16`.
+- 🧭 **Búsqueda por temas**: parábolas, los diez mandamientos, el fruto del
+  Espíritu y temas populares (amor, fe, ansiedad…) llevan a sus versículos
+  clave. Índice curado y editable en `assets/data/topics.json`.
 - 🗂️ Libros agrupados por Antiguo/Nuevo Testamento, con sinopsis y navegación
   por capítulos.
 - 🎚️ Navegador lateral de versículos (deslizar para saltar, con vista previa).

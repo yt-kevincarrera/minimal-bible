@@ -46,6 +46,7 @@ flutter:
   assets:
     - assets/data/rv1960.json
     - assets/data/headings.json
+    - assets/data/topics.json
   # Fuentes empaquetadas (offline, sin descarga en tiempo de ejecución).
   # Son variables (eje wght), así que un solo archivo cubre todos los pesos.
   fonts:

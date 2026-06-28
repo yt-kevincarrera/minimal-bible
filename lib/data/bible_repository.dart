@@ -112,6 +112,34 @@ class BibleRepository {
     return '"${tokens.join(' ')}"';
   }
 
+  /// Carga versículos concretos por referencia ([[bookId, chapter, verse], …]),
+  /// conservando el orden de entrada. Para los índices de temas.
+  Future<List<SavedVerse>> versesByRefs(List<List<int>> refs) async {
+    if (refs.isEmpty) return const [];
+    final clause = List.filled(
+      refs.length,
+      '(v.book_id = ? AND v.chapter = ? AND v.verse = ?)',
+    ).join(' OR ');
+    final args = <Object?>[for (final r in refs) ...r];
+    final rows = await _db.rawQuery('''
+      SELECT v.id AS verse_id, v.book_id, v.chapter, v.verse, v.text,
+             b.name AS book_name, b.abbr AS book_abbr, 0 AS added_at
+      FROM verses v
+      JOIN books b ON b.id = v.book_id
+      WHERE $clause
+    ''', args);
+    final byKey = {
+      for (final r in rows)
+        '${r['book_id']}:${r['chapter']}:${r['verse']}': SavedVerse.fromRow(r),
+    };
+    final out = <SavedVerse>[];
+    for (final r in refs) {
+      final v = byKey['${r[0]}:${r[1]}:${r[2]}'];
+      if (v != null) out.add(v);
+    }
+    return out;
+  }
+
   // ---- Colecciones / playlists --------------------------------------------
 
   Future<List<Collection>> collections() async {

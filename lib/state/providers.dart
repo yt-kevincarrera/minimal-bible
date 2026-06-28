@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -88,6 +89,76 @@ final searchResultsProvider = FutureProvider<List<SearchHit>>((ref) async {
   };
   return repo.search(q, testament: testament, phrase: phrase);
 });
+
+// ---- Búsqueda por temas (índice curado, opcional) -------------------------
+
+/// Índice de temas/pasajes (parábolas, temas populares, los diez mandamientos,
+/// el fruto del Espíritu…). Es un extra sobre la búsqueda normal.
+final topicsProvider = FutureProvider<List<Topic>>((ref) async {
+  try {
+    final raw = await rootBundle.loadString('assets/data/topics.json');
+    final list = json.decode(raw) as List;
+    return list
+        .map((e) => Topic.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  } catch (_) {
+    return const []; // si el asset no está, simplemente no hay temas
+  }
+});
+
+const _topicStopwords = {
+  'de', 'del', 'la', 'el', 'los', 'las', 'y', 'a', 'en',
+  'un', 'una', 'que', 'con', 'por', 'para',
+};
+
+String _topicNorm(String s) => s
+    .toLowerCase()
+    .trim()
+    .replaceAll(RegExp('[áàä]'), 'a')
+    .replaceAll(RegExp('[éèë]'), 'e')
+    .replaceAll(RegExp('[íìï]'), 'i')
+    .replaceAll(RegExp('[óòö]'), 'o')
+    .replaceAll(RegExp('[úùü]'), 'u')
+    .replaceAll('ñ', 'n')
+    .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+Set<String> _topicTokens(String norm) => norm
+    .split(' ')
+    .where((t) => t.length >= 2 && !_topicStopwords.contains(t))
+    .toSet();
+
+/// Devuelve los temas cuyo título/sinónimos contienen todas las palabras de la
+/// consulta. Ordena por relevancia (coincidencia exacta primero).
+List<Topic> matchTopics(String query, List<Topic> topics, {int limit = 5}) {
+  final qn = _topicNorm(query);
+  final qTokens = _topicTokens(qn);
+  if (qTokens.isEmpty) return const [];
+
+  final scored = <(int, Topic)>[];
+  for (final t in topics) {
+    final keys = [t.title, ...t.aliases];
+    final union = <String>{};
+    var exact = false;
+    var startsWith = false;
+    for (final k in keys) {
+      final kn = _topicNorm(k);
+      union.addAll(_topicTokens(kn));
+      if (kn == qn) exact = true;
+      if (kn.startsWith(qn)) startsWith = true;
+    }
+    if (qTokens.every(union.contains)) {
+      final score = exact ? 0 : (startsWith ? 1 : 2);
+      scored.add((score, t));
+    }
+  }
+  scored.sort(
+    (a, b) =>
+        a.$1 != b.$1 ? a.$1 - b.$1 : a.$2.title.length - b.$2.title.length,
+  );
+  return scored.take(limit).map((e) => e.$2).toList(growable: false);
+}
 
 final sharedPrefsProvider = FutureProvider<SharedPreferences>(
   (_) => SharedPreferences.getInstance(),
