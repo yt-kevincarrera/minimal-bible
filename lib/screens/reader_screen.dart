@@ -134,6 +134,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       }
     }
     active ??= _verseNumbers.first;
+    // Al final del scroll los últimos versículos nunca llegan arriba; cuando
+    // ya no se puede bajar más, marca el último como activo.
+    if (_scroll.hasClients &&
+        _scroll.position.pixels >= _scroll.position.maxScrollExtent - 4) {
+      active = _verseNumbers.last;
+    }
     if (active != _activeVerse && mounted) {
       setState(() => _activeVerse = active);
     }
@@ -164,7 +170,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void dispose() {
     // Detiene la lectura en voz alta al salir de este capítulo.
-    if (_ttsCtrl.state.isFor(widget.bookId, widget.chapter)) {
+    if (_ttsCtrl.isReadingChapter(widget.bookId, widget.chapter)) {
       _ttsCtrl.stop();
     }
     WakelockPlus.disable();
@@ -435,6 +441,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final bookAsync = ref.watch(bookProvider(widget.bookId));
     final scale = ref.watch(fontScaleProvider);
     final lineHeight = ref.watch(lineHeightProvider);
+    final layout = ref.watch(readerLayoutProvider);
     final headings = ref
         .watch(
           chapterHeadingsProvider(ChapterRef(widget.bookId, widget.chapter)),
@@ -605,6 +612,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                     speakingVerse: speakingVerse,
                                     scale: scale,
                                     lineHeight: lineHeight,
+                                    layout: layout,
                                   ),
                                 ),
                               ),
@@ -789,6 +797,7 @@ class _ChapterText extends StatelessWidget {
   final int? speakingVerse; // versículo que se está leyendo en voz alta
   final double scale;
   final double lineHeight;
+  final ReaderLayout layout;
 
   const _ChapterText({
     required this.book,
@@ -803,6 +812,7 @@ class _ChapterText extends StatelessWidget {
     required this.speakingVerse,
     required this.scale,
     required this.lineHeight,
+    required this.layout,
   });
 
   List<_Block> _toBlocks() {
@@ -931,7 +941,9 @@ class _ChapterText extends StatelessWidget {
               child: Text(block.title!, style: titleStyle),
             ),
           RichText(
-            textAlign: TextAlign.left,
+            textAlign: layout.versePerLine
+                ? TextAlign.left
+                : (layout.justify ? TextAlign.justify : TextAlign.left),
             text: TextSpan(
               style: body,
               children: [
@@ -944,7 +956,7 @@ class _ChapterText extends StatelessWidget {
                         : gestures[v.id]?.longPress,
                     style: verseStyle(v),
                   ),
-                  const TextSpan(text: '  '),
+                  TextSpan(text: layout.versePerLine ? '\n' : '  '),
                 ],
               ],
             ),
@@ -1227,6 +1239,8 @@ class _ReadingOptionsSheet extends ConsumerWidget {
     final keepAwake = ref.watch(keepAwakeProvider);
     final rate = ref.watch(ttsRateProvider);
     final lineHeight = ref.watch(lineHeightProvider);
+    final layout = ref.watch(readerLayoutProvider);
+    final layoutN = ref.read(readerLayoutProvider.notifier);
     final theme = Theme.of(context);
     final colors = context.appColors;
 
@@ -1325,6 +1339,42 @@ class _ReadingOptionsSheet extends ConsumerWidget {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'DISEÑO',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.inkSoft,
+                letterSpacing: 1.6,
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: Icon(
+                Icons.format_align_justify,
+                color: colors.inkSoft,
+              ),
+              title: const Text('Justificar texto'),
+              value: layout.justify,
+              onChanged: layout.versePerLine
+                  ? null
+                  : (v) => layoutN.setJustify(v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: Icon(
+                Icons.format_line_spacing,
+                color: colors.inkSoft,
+              ),
+              title: const Text('Un versículo por línea'),
+              subtitle: Text(
+                'Cada versículo en su propia línea, más separados',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.inkSoft,
+                ),
+              ),
+              value: layout.versePerLine,
+              onChanged: (v) => layoutN.setVersePerLine(v),
             ),
             const SizedBox(height: 4),
             SwitchListTile(

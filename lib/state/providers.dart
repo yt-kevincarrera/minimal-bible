@@ -457,6 +457,70 @@ final lineHeightProvider = NotifierProvider<LineHeightNotifier, double>(
   LineHeightNotifier.new,
 );
 
+/// Personalización del layout de lectura (alineación y disposición de
+/// versículos). El interlineado vive aparte en [lineHeightProvider].
+class ReaderLayout {
+  final bool justify; // texto justificado
+  final bool versePerLine; // un versículo por línea
+
+  const ReaderLayout({
+    this.justify = true,
+    this.versePerLine = false,
+  });
+
+  ReaderLayout copyWith({
+    bool? justify,
+    bool? versePerLine,
+  }) => ReaderLayout(
+    justify: justify ?? this.justify,
+    versePerLine: versePerLine ?? this.versePerLine,
+  );
+}
+
+class ReaderLayoutNotifier extends Notifier<ReaderLayout> {
+  static const _key = 'reader_layout';
+
+  @override
+  ReaderLayout build() => const ReaderLayout();
+
+  Future<void> load() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    final raw = prefs.getString(_key);
+    if (raw == null) return;
+    final m = json.decode(raw) as Map<String, dynamic>;
+    state = ReaderLayout(
+      justify: m['justify'] as bool? ?? true,
+      versePerLine: m['versePerLine'] as bool? ?? false,
+    );
+  }
+
+  Future<void> _persist() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setString(
+      _key,
+      json.encode({
+        'justify': state.justify,
+        'versePerLine': state.versePerLine,
+      }),
+    );
+  }
+
+  Future<void> setJustify(bool v) async {
+    state = state.copyWith(justify: v);
+    await _persist();
+  }
+
+  Future<void> setVersePerLine(bool v) async {
+    state = state.copyWith(versePerLine: v);
+    await _persist();
+  }
+}
+
+final readerLayoutProvider =
+    NotifierProvider<ReaderLayoutNotifier, ReaderLayout>(
+      ReaderLayoutNotifier.new,
+    );
+
 /// Historial de búsquedas recientes (las más nuevas primero, sin duplicados).
 class RecentSearchesNotifier extends Notifier<List<String>> {
   static const _key = 'recent_searches';

@@ -38,12 +38,15 @@ android {
         }
     }
 
-    // Nombra el APK de forma legible (LaBiblia-RV1960-<version>.apk).
+    // Nombra el APK de forma legible. Incluye el ABI cuando se usa
+    // --split-per-abi para que no choquen los nombres.
     applicationVariants.all {
         val variant = this
         variant.outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "LaBiblia-RV1960-${variant.versionName}.apk"
+            val abi = output.getFilter(com.android.build.OutputFile.ABI)
+            val suffix = if (abi != null) "-$abi" else ""
+            output.outputFileName = "LaBiblia-RV1960-${variant.versionName}$suffix.apk"
         }
     }
 }

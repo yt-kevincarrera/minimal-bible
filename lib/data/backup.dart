@@ -16,6 +16,8 @@ class BackupService {
     'theme_mode',
     'accent_index',
     'font_scale',
+    'line_height',
+    'reader_layout',
     'last_book',
     'book_chapters',
     'read_chapters',
