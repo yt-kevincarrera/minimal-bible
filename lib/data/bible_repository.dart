@@ -37,10 +37,27 @@ class BibleRepository {
     return rows.map(Verse.fromRow).toList(growable: false);
   }
 
-  Future<List<SearchHit>> search(String query, {int limit = 200}) async {
+  /// Búsqueda de texto completo. Filtros opcionales:
+  /// - [testament]: 'OT' / 'NT' para acotar al Antiguo o Nuevo Testamento.
+  /// - [phrase]: true busca la frase exacta; false (por defecto) todas las
+  ///   palabras en cualquier orden (con prefijo, como hasta ahora).
+  Future<List<SearchHit>> search(
+    String query, {
+    int limit = 200,
+    String? testament,
+    bool phrase = false,
+  }) async {
     final cleaned = query.trim();
     if (cleaned.isEmpty) return const [];
-    final ftsQuery = _toFtsQuery(cleaned);
+    final ftsQuery = phrase ? _toFtsPhrase(cleaned) : _toFtsQuery(cleaned);
+
+    final args = <Object?>[ftsQuery];
+    var testamentFilter = '';
+    if (testament != null) {
+      testamentFilter = 'AND b.testament = ?';
+      args.add(testament);
+    }
+    args.add(limit);
 
     final rows = await _db.rawQuery(
       '''
@@ -50,11 +67,11 @@ class BibleRepository {
       FROM verses_fts
       JOIN verses v ON v.id = verses_fts.rowid
       JOIN books  b ON b.id = v.book_id
-      WHERE verses_fts MATCH ?
+      WHERE verses_fts MATCH ? $testamentFilter
       ORDER BY v.book_id, v.chapter, v.verse
       LIMIT ?
     ''',
-      [ftsQuery, limit],
+      args,
     );
 
     return rows
@@ -81,6 +98,18 @@ class BibleRepository {
         .toList();
     if (tokens.isEmpty) return '""';
     return tokens.map((t) => '"$t"*').join(' ');
+  }
+
+  /// Frase exacta: las palabras deben aparecer juntas y en orden.
+  String _toFtsPhrase(String input) {
+    final tokens = input
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .map((t) => t.replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) return '""';
+    return '"${tokens.join(' ')}"';
   }
 
   // ---- Colecciones / playlists --------------------------------------------

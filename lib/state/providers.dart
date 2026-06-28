@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/backup.dart';
 import '../data/bible_repository.dart';
+import '../data/books.dart';
 import '../data/database.dart';
 import '../data/models.dart';
 
@@ -66,11 +67,26 @@ final chapterHeadingsProvider =
 
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
+/// Alcance de la búsqueda: toda la Biblia, solo Antiguo o solo Nuevo.
+enum SearchScope { all, oldT, newT }
+
+final searchScopeProvider = StateProvider<SearchScope>((ref) => SearchScope.all);
+
+/// Si true, busca la frase exacta en vez de todas las palabras sueltas.
+final searchPhraseProvider = StateProvider<bool>((ref) => false);
+
 final searchResultsProvider = FutureProvider<List<SearchHit>>((ref) async {
   final q = ref.watch(searchQueryProvider);
   if (q.trim().length < 2) return const [];
+  final scope = ref.watch(searchScopeProvider);
+  final phrase = ref.watch(searchPhraseProvider);
   final repo = await ref.watch(repositoryProvider.future);
-  return repo.search(q);
+  final testament = switch (scope) {
+    SearchScope.all => null,
+    SearchScope.oldT => testamentOld,
+    SearchScope.newT => testamentNew,
+  };
+  return repo.search(q, testament: testament, phrase: phrase);
 });
 
 final sharedPrefsProvider = FutureProvider<SharedPreferences>(
