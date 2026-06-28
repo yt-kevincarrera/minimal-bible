@@ -358,6 +358,71 @@ final fontScaleProvider = NotifierProvider<FontScaleNotifier, double>(
   FontScaleNotifier.new,
 );
 
+/// Interlineado (alto de línea) del texto de lectura. 1.9 = valor histórico.
+class LineHeightNotifier extends Notifier<double> {
+  static const _key = 'line_height';
+  static const minHeight = 1.4;
+  static const maxHeight = 2.4;
+
+  @override
+  double build() => 1.9;
+
+  Future<void> load() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    final v = prefs.getDouble(_key);
+    if (v != null) state = v.clamp(minHeight, maxHeight);
+  }
+
+  Future<void> set(double v) async {
+    final clamped = v.clamp(minHeight, maxHeight);
+    if (clamped == state) return;
+    state = clamped;
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setDouble(_key, clamped);
+  }
+}
+
+final lineHeightProvider = NotifierProvider<LineHeightNotifier, double>(
+  LineHeightNotifier.new,
+);
+
+/// Historial de búsquedas recientes (las más nuevas primero, sin duplicados).
+class RecentSearchesNotifier extends Notifier<List<String>> {
+  static const _key = 'recent_searches';
+  static const _max = 10;
+
+  @override
+  List<String> build() => const [];
+
+  Future<void> load() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    state = prefs.getStringList(_key) ?? const [];
+  }
+
+  Future<void> add(String query) async {
+    final t = query.trim();
+    if (t.length < 2) return;
+    final next = [
+      t,
+      ...state.where((e) => e.toLowerCase() != t.toLowerCase()),
+    ].take(_max).toList();
+    state = next;
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setStringList(_key, next);
+  }
+
+  Future<void> clear() async {
+    state = const [];
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.remove(_key);
+  }
+}
+
+final recentSearchesProvider =
+    NotifierProvider<RecentSearchesNotifier, List<String>>(
+      RecentSearchesNotifier.new,
+    );
+
 /// Mantener la pantalla encendida mientras se lee.
 class KeepAwakeNotifier extends Notifier<bool> {
   static const _key = 'keep_awake';

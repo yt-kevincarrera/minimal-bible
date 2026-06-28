@@ -7,10 +7,11 @@ Hecha con Flutter por **Kevin Carrera**.
 
 ## ✨ Características
 
-- 📖 Lectura cómoda: tipografía serif, tamaño ajustable, tema claro/oscuro y
-  varios colores de acento.
+- 📖 Lectura cómoda: tipografía serif, tamaño e **interlineado** ajustables,
+  tema claro/oscuro y varios colores de acento.
 - 🔎 Búsqueda instantánea con **SQLite FTS5** (ignora tildes: "jesus" encuentra
-  "Jesús"), totalmente offline.
+  "Jesús"), totalmente offline. Con filtros opcionales (alcance, frase exacta),
+  historial de búsquedas e **ir a cita** directa escribiendo p. ej. `Jn 3:16`.
 - 🗂️ Libros agrupados por Antiguo/Nuevo Testamento, con sinopsis y navegación
   por capítulos.
 - 🎚️ Navegador lateral de versículos (deslizar para saltar, con vista previa).

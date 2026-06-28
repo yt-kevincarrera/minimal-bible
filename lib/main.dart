@@ -58,6 +58,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       ref.read(scrollStoreProvider.notifier).load();
       ref.read(keepAwakeProvider.notifier).load();
       ref.read(ttsRateProvider.notifier).load();
+      ref.read(lineHeightProvider.notifier).load();
+      ref.read(recentSearchesProvider.notifier).load();
     });
   }
 
