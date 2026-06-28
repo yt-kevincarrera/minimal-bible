@@ -42,6 +42,67 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
   }
 
+  void _runRecent(String q) {
+    _controller.text = q;
+    _controller.selection = TextSelection.collapsed(offset: q.length);
+    ref.read(searchQueryProvider.notifier).state = q;
+    ref.read(recentSearchesProvider.notifier).add(q); // lo sube arriba
+    setState(() {});
+  }
+
+  /// Pantalla cuando aún no se busca: muestra búsquedas recientes si las hay,
+  /// o una ayuda breve.
+  Widget _buildIdleState() {
+    final recents = ref.watch(recentSearchesProvider);
+    if (recents.isEmpty) {
+      return _EmptyState(
+        icon: Icons.search,
+        title: 'Escribe al menos 2 letras',
+        subtitle:
+            'Busca por palabras o frases (tilde opcional: "jesus" encuentra '
+            '"Jesús"). También puedes escribir una cita como "Jn 3:16".',
+      );
+    }
+    final colors = context.appColors;
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      children: [
+        Row(
+          children: [
+            Text(
+              'BÚSQUEDAS RECIENTES',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.inkSoft,
+                letterSpacing: 1.4,
+              ),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: () =>
+                  ref.read(recentSearchesProvider.notifier).clear(),
+              child: const Text('Borrar'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final q in recents)
+              ActionChip(
+                label: Text(q),
+                avatar: Icon(Icons.history, size: 18, color: colors.inkSoft),
+                side: BorderSide(color: colors.divider),
+                onPressed: () => _runRecent(q),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -51,6 +112,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final filtersActive =
         ref.watch(searchScopeProvider) != SearchScope.all ||
         ref.watch(searchPhraseProvider);
+    final books = ref.watch(booksProvider).valueOrNull ?? const <Book>[];
+    final goto = books.isEmpty ? null : parseReference(query, books);
 
     return Scaffold(
       appBar: AppBar(
@@ -59,6 +122,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           controller: _controller,
           focusNode: _focus,
           onChanged: _onChanged,
+          onSubmitted: (v) =>
+              ref.read(recentSearchesProvider.notifier).add(v),
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
             hintText: 'Buscar en la Biblia…',
@@ -103,16 +168,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             const _SearchFilters(),
             Divider(height: 1, color: colors.divider),
           ],
+          // "Ir a cita" cuando la consulta es una referencia (Jn 3:16).
+          if (goto != null) ...[
+            _GotoTile(target: goto),
+            Divider(height: 1, color: colors.divider),
+          ],
           Expanded(
             child: Builder(
               builder: (context) {
                 if (query.trim().length < 2) {
-                  return _EmptyState(
-                    icon: Icons.search,
-                    title: 'Escribe al menos 2 letras',
-                    subtitle:
-                        'Busca por palabras o frases. Tilde opcional: "jesus" encuentra "Jesús".',
-                  );
+                  return _buildIdleState();
                 }
                 return resultsAsync.when(
                   loading: () => Column(
@@ -241,15 +306,18 @@ class _HitTile extends ConsumerWidget {
     final colors = context.appColors;
     final scale = ref.watch(fontScaleProvider);
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ReaderScreen(
-            bookId: hit.bookId,
-            chapter: hit.chapter,
-            verseToHighlight: hit.verse,
+      onTap: () {
+        ref.read(recentSearchesProvider.notifier).add(ref.read(searchQueryProvider));
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ReaderScreen(
+              bookId: hit.bookId,
+              chapter: hit.chapter,
+              verseToHighlight: hit.verse,
+            ),
           ),
-        ),
-      ),
+        );
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Column(
@@ -296,6 +364,109 @@ class _HitTile extends ConsumerWidget {
       spans.add(TextSpan(text: snippet.substring(i)));
     }
     return spans;
+  }
+}
+
+/// Normaliza para comparar nombres de libro: minúsculas, sin tildes ni signos.
+String _normRef(String s) => s
+    .toLowerCase()
+    .trim()
+    .replaceAll(RegExp('[áàä]'), 'a')
+    .replaceAll(RegExp('[éèë]'), 'e')
+    .replaceAll(RegExp('[íìï]'), 'i')
+    .replaceAll(RegExp('[óòö]'), 'o')
+    .replaceAll(RegExp('[úùü]'), 'u')
+    .replaceAll('ñ', 'n')
+    .replaceAll(RegExp('[^a-z0-9]'), '');
+
+/// Interpreta una cita tipo "Jn 3:16", "Juan 3", "1 Co 13:4" → libro+cap+verso.
+/// Devuelve null si no parece una referencia válida.
+(Book, int, int?)? parseReference(String input, List<Book> books) {
+  final m = RegExp(
+    r'^\s*([0-9]?\s*[^\d:]+?)\s+(\d+)(?::(\d+))?\s*$',
+    unicode: true,
+  ).firstMatch(input);
+  if (m == null) return null;
+  final bookPart = _normRef(m.group(1)!);
+  if (bookPart.isEmpty) return null;
+  final chapter = int.tryParse(m.group(2)!);
+  if (chapter == null) return null;
+  final verse = m.group(3) == null ? null : int.tryParse(m.group(3)!);
+
+  Book? exact;
+  Book? prefix;
+  for (final b in books) {
+    final n = _normRef(b.name);
+    final a = _normRef(b.abbr);
+    if (n == bookPart || a == bookPart) {
+      exact = b;
+      break;
+    }
+    if (prefix == null && (n.startsWith(bookPart) || a.startsWith(bookPart))) {
+      prefix = b;
+    }
+  }
+  final book = exact ?? prefix;
+  if (book == null) return null;
+  if (chapter < 1 || chapter > book.chapterCount) return null;
+  return (book, chapter, verse);
+}
+
+/// Tarjeta "Ir a {cita}" que aparece arriba cuando la consulta es una
+/// referencia y salta directo al lector.
+class _GotoTile extends StatelessWidget {
+  final (Book, int, int?) target;
+  const _GotoTile({required this.target});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final theme = Theme.of(context);
+    final (book, chapter, verse) = target;
+    final label = verse == null
+        ? '${book.name} $chapter'
+        : '${book.name} $chapter:$verse';
+    return Material(
+      color: colors.accent.withValues(alpha: 0.10),
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ReaderScreen(
+              bookId: book.id,
+              chapter: chapter,
+              verseToHighlight: verse,
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          child: Row(
+            children: [
+              Icon(Icons.my_location, size: 20, color: colors.accent),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      const TextSpan(text: 'Ir a '),
+                      TextSpan(
+                        text: label,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: colors.ink,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+              Icon(Icons.arrow_forward, size: 18, color: colors.accent),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

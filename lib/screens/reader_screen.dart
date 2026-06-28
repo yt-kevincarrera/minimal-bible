@@ -434,6 +434,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
     final bookAsync = ref.watch(bookProvider(widget.bookId));
     final scale = ref.watch(fontScaleProvider);
+    final lineHeight = ref.watch(lineHeightProvider);
     final headings = ref
         .watch(
           chapterHeadingsProvider(ChapterRef(widget.bookId, widget.chapter)),
@@ -603,6 +604,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                     highlightVerse: _activeHighlight,
                                     speakingVerse: speakingVerse,
                                     scale: scale,
+                                    lineHeight: lineHeight,
                                   ),
                                 ),
                               ),
@@ -786,6 +788,7 @@ class _ChapterText extends StatelessWidget {
   final int? highlightVerse;
   final int? speakingVerse; // versículo que se está leyendo en voz alta
   final double scale;
+  final double lineHeight;
 
   const _ChapterText({
     required this.book,
@@ -799,6 +802,7 @@ class _ChapterText extends StatelessWidget {
     required this.highlightVerse,
     required this.speakingVerse,
     required this.scale,
+    required this.lineHeight,
   });
 
   List<_Block> _toBlocks() {
@@ -824,7 +828,7 @@ class _ChapterText extends StatelessWidget {
 
     final body = theme.textTheme.bodyLarge!.copyWith(
       fontSize: 19 * scale,
-      height: 1.9,
+      height: lineHeight,
       letterSpacing: 0.1,
     );
     final numStyle = TextStyle(
@@ -1222,6 +1226,7 @@ class _ReadingOptionsSheet extends ConsumerWidget {
     final notifier = ref.read(fontScaleProvider.notifier);
     final keepAwake = ref.watch(keepAwakeProvider);
     final rate = ref.watch(ttsRateProvider);
+    final lineHeight = ref.watch(lineHeightProvider);
     final theme = Theme.of(context);
     final colors = context.appColors;
 
@@ -1292,6 +1297,32 @@ class _ReadingOptionsSheet extends ConsumerWidget {
                   color: colors.ink,
                   tooltip: 'Aumentar',
                   onPressed: () => notifier.set(scale + 0.1),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'INTERLINEADO',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.inkSoft,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.format_line_spacing, color: colors.inkSoft),
+                Expanded(
+                  child: Slider(
+                    value: lineHeight,
+                    min: LineHeightNotifier.minHeight,
+                    max: LineHeightNotifier.maxHeight,
+                    divisions: 10,
+                    activeColor: colors.accent,
+                    inactiveColor: colors.divider,
+                    label: lineHeight.toStringAsFixed(1),
+                    onChanged: ref.read(lineHeightProvider.notifier).set,
+                  ),
                 ),
               ],
             ),
@@ -1602,7 +1633,13 @@ class _VerseRailState extends State<_VerseRail> {
         final previewVerse = _y != null ? widget.verses[_indexAt(_y!)] : null;
         final title = previewVerse != null ? _groupTitle(previewVerse) : null;
 
-        return Listener(
+        return Semantics(
+          slider: true,
+          label: 'Navegador de versículos',
+          value: widget.activeVerse != null
+              ? 'Versículo ${widget.activeVerse}'
+              : null,
+          child: Listener(
           behavior: HitTestBehavior.opaque,
           onPointerDown: (e) => _track(_toLocal(ctx, e.position)),
           onPointerMove: (e) => _track(_toLocal(ctx, e.position)),
@@ -1674,6 +1711,7 @@ class _VerseRailState extends State<_VerseRail> {
                   ),
               ],
             ),
+          ),
           ),
         );
       },
