@@ -658,11 +658,19 @@ class ScrollStore extends Notifier<Map<String, double>> {
   double? offsetFor(int bookId, int chapter) => state['$bookId:$chapter'];
 
   Future<void> save(int bookId, int chapter, double offset) async {
+    final key = '$bookId:$chapter';
+    final current = state[key];
+    // Se llama al desplazarse: si no cambia nada apreciable, no toca disco.
+    if (offset <= 1) {
+      if (current == null) return;
+    } else if (current != null && (current - offset).abs() < 1) {
+      return;
+    }
     final map = Map<String, double>.from(state);
     if (offset <= 1) {
-      map.remove('$bookId:$chapter');
+      map.remove(key);
     } else {
-      map['$bookId:$chapter'] = offset;
+      map[key] = offset;
     }
     state = map;
     final prefs = await ref.read(sharedPrefsProvider.future);
