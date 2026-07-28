@@ -2,6 +2,10 @@ import 'package:sqflite/sqflite.dart';
 
 import 'models.dart';
 
+// Compiladas una vez: se usan en cada búsqueda mientras se escribe.
+final _reSpaces = RegExp(r'\s+');
+final _reNotLetterOrDigit = RegExp(r'[^\p{L}\p{N}]', unicode: true);
+
 class BibleRepository {
   BibleRepository(this._db);
   final Database _db;
@@ -89,25 +93,22 @@ class BibleRepository {
         .toList(growable: false);
   }
 
+  List<String> _ftsTokens(String input) => input
+      .split(_reSpaces)
+      .where((t) => t.isNotEmpty)
+      .map((t) => t.replaceAll(_reNotLetterOrDigit, ''))
+      .where((t) => t.isNotEmpty)
+      .toList();
+
   String _toFtsQuery(String input) {
-    final tokens = input
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
-        .map((t) => t.replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''))
-        .where((t) => t.isNotEmpty)
-        .toList();
+    final tokens = _ftsTokens(input);
     if (tokens.isEmpty) return '""';
     return tokens.map((t) => '"$t"*').join(' ');
   }
 
   /// Frase exacta: las palabras deben aparecer juntas y en orden.
   String _toFtsPhrase(String input) {
-    final tokens = input
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
-        .map((t) => t.replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''))
-        .where((t) => t.isNotEmpty)
-        .toList();
+    final tokens = _ftsTokens(input);
     if (tokens.isEmpty) return '""';
     return '"${tokens.join(' ')}"';
   }

@@ -46,6 +46,42 @@ class Verse {
   );
 }
 
+// Compilar una expresión regular no es gratis, así que se crean una sola vez
+// aquí arriba en vez de dentro de las funciones que se llaman al escribir.
+final _reA = RegExp('[áàä]');
+final _reE = RegExp('[éèë]');
+final _reI = RegExp('[íìï]');
+final _reO = RegExp('[óòö]');
+final _reU = RegExp('[úùü]');
+final _reNotWord = RegExp(r'[^a-z0-9\s]');
+final _reSpaces = RegExp(r'\s+');
+
+const _topicStopwords = {
+  'de', 'del', 'la', 'el', 'los', 'las', 'y', 'a', 'en',
+  'un', 'una', 'que', 'con', 'por', 'para',
+};
+
+/// Normaliza para comparar temas: minúsculas, sin tildes y sin signos, pero
+/// conservando los espacios (los títulos son de varias palabras).
+String topicNorm(String s) => s
+    .toLowerCase()
+    .trim()
+    .replaceAll(_reA, 'a')
+    .replaceAll(_reE, 'e')
+    .replaceAll(_reI, 'i')
+    .replaceAll(_reO, 'o')
+    .replaceAll(_reU, 'u')
+    .replaceAll('ñ', 'n')
+    .replaceAll(_reNotWord, ' ')
+    .replaceAll(_reSpaces, ' ')
+    .trim();
+
+/// Palabras significativas de un texto ya normalizado con [topicNorm].
+Set<String> topicTokens(String norm) => norm
+    .split(' ')
+    .where((t) => t.length >= 2 && !_topicStopwords.contains(t))
+    .toSet();
+
 /// Tema o pasaje del índice curado (assets/data/topics.json): un título con
 /// sinónimos y una lista de referencias [bookId, chapter, verse].
 class Topic {
@@ -54,23 +90,41 @@ class Topic {
   final List<String> aliases;
   final List<List<int>> refs;
 
+  /// Título y sinónimos ya normalizados, y la unión de sus palabras. Se
+  /// calculan una vez al cargar el índice: la búsqueda por temas se ejecuta en
+  /// cada pulsación de tecla y normalizar los 200+ textos cada vez costaba
+  /// miles de operaciones por letra escrita.
+  final List<String> normKeys;
+  final Set<String> tokens;
+
   const Topic({
     required this.title,
     required this.category,
     required this.aliases,
     required this.refs,
+    required this.normKeys,
+    required this.tokens,
   });
 
-  factory Topic.fromJson(Map<String, dynamic> j) => Topic(
-    title: j['title'] as String,
-    category: (j['category'] as String?) ?? 'Temas',
-    aliases:
+  factory Topic.fromJson(Map<String, dynamic> j) {
+    final title = j['title'] as String;
+    final aliases =
         (j['aliases'] as List?)?.map((e) => e.toString()).toList() ??
-        const [],
-    refs: (j['refs'] as List)
-        .map((r) => (r as List).map((e) => e as int).toList())
-        .toList(),
-  );
+        const <String>[];
+    final normKeys = [
+      for (final k in [title, ...aliases]) topicNorm(k),
+    ];
+    return Topic(
+      title: title,
+      category: (j['category'] as String?) ?? 'Temas',
+      aliases: aliases,
+      refs: (j['refs'] as List)
+          .map((r) => (r as List).map((e) => e as int).toList())
+          .toList(),
+      normKeys: normKeys,
+      tokens: {for (final k in normKeys) ...topicTokens(k)},
+    );
+  }
 }
 
 class SearchHit {

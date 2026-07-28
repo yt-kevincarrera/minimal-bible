@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
@@ -56,21 +55,22 @@ class BibleDatabase {
       },
     );
 
-    final count = Sqflite.firstIntValue(
-      await _db.rawQuery('SELECT COUNT(*) FROM verses'),
-    );
-    if (count == null || count == 0) {
+    // Basta saber SI hay filas: contarlas todas recorría las ~31.000 del índice
+    // en cada arranque.
+    if (await _isEmpty(_db, 'verses')) {
       await _seedFromAsset(_db);
     }
 
     // Auto-reparable: si los títulos aún no se sembraron (p. ej. el asset
     // llegó después), reintenta al abrir.
-    final hCount = Sqflite.firstIntValue(
-      await _db.rawQuery('SELECT COUNT(*) FROM headings'),
-    );
-    if (hCount == null || hCount == 0) {
+    if (await _isEmpty(_db, 'headings')) {
       await _seedHeadings(_db);
     }
+  }
+
+  Future<bool> _isEmpty(Database db, String table) async {
+    final rows = await db.rawQuery('SELECT 1 FROM $table LIMIT 1');
+    return rows.isEmpty;
   }
 
   Future<void> _create(Database db) async {
@@ -197,7 +197,11 @@ class BibleDatabase {
 
   Future<void> _seedFromAsset(Database db) async {
     final raw = await rootBundle.loadString('assets/data/rv1960.json');
-    final Map<String, dynamic> data = json.decode(raw) as Map<String, dynamic>;
+    // Decodificar los ~5 MB del texto bíblico bloquea el hilo de UI varios
+    // segundos (la primera vez que se abre la app): se hace en otro isolate
+    // para que la pantalla de carga siga animándose. En web `compute` corre en
+    // el mismo isolate, así que allí se comporta como antes.
+    final data = (await compute(json.decode, raw)) as Map<String, dynamic>;
 
     await db.transaction((txn) async {
       final batch = txn.batch();

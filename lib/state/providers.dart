@@ -106,49 +106,25 @@ final topicsProvider = FutureProvider<List<Topic>>((ref) async {
   }
 });
 
-const _topicStopwords = {
-  'de', 'del', 'la', 'el', 'los', 'las', 'y', 'a', 'en',
-  'un', 'una', 'que', 'con', 'por', 'para',
-};
-
-String _topicNorm(String s) => s
-    .toLowerCase()
-    .trim()
-    .replaceAll(RegExp('[áàä]'), 'a')
-    .replaceAll(RegExp('[éèë]'), 'e')
-    .replaceAll(RegExp('[íìï]'), 'i')
-    .replaceAll(RegExp('[óòö]'), 'o')
-    .replaceAll(RegExp('[úùü]'), 'u')
-    .replaceAll('ñ', 'n')
-    .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
-    .replaceAll(RegExp(r'\s+'), ' ')
-    .trim();
-
-Set<String> _topicTokens(String norm) => norm
-    .split(' ')
-    .where((t) => t.length >= 2 && !_topicStopwords.contains(t))
-    .toSet();
-
 /// Devuelve los temas cuyo título/sinónimos contienen todas las palabras de la
 /// consulta. Ordena por relevancia (coincidencia exacta primero).
+///
+/// Se llama en cada pulsación de tecla, así que solo normaliza la consulta: los
+/// títulos y sinónimos ya vienen normalizados desde [Topic.fromJson].
 List<Topic> matchTopics(String query, List<Topic> topics, {int limit = 5}) {
-  final qn = _topicNorm(query);
-  final qTokens = _topicTokens(qn);
+  final qn = topicNorm(query);
+  final qTokens = topicTokens(qn);
   if (qTokens.isEmpty) return const [];
 
   final scored = <(int, Topic)>[];
   for (final t in topics) {
-    final keys = [t.title, ...t.aliases];
-    final union = <String>{};
     var exact = false;
     var startsWith = false;
-    for (final k in keys) {
-      final kn = _topicNorm(k);
-      union.addAll(_topicTokens(kn));
+    for (final kn in t.normKeys) {
       if (kn == qn) exact = true;
       if (kn.startsWith(qn)) startsWith = true;
     }
-    if (qTokens.every(union.contains)) {
+    if (qTokens.every(t.tokens.contains)) {
       final score = exact ? 0 : (startsWith ? 1 : 2);
       scored.add((score, t));
     }
@@ -264,22 +240,25 @@ class ReadingProgressNotifier extends Notifier<ReadingProgress> {
     final today = _today();
 
     final chapters = Map<int, int>.from(state.chapters)..[bookId] = chapter;
-    final read = {
-      for (final e in state.read.entries) e.key: {...e.value},
-    };
-    (read[bookId] ??= {}).add(chapter);
-    final days = {...state.days, today};
+    // Copia superficial y clona solo el libro que se toca: nada muta los demás
+    // conjuntos, y esto corre justo al abrir el capítulo (mientras entra la
+    // transición), así que cuanto menos trabajo, mejor.
+    final read = Map<int, Set<int>>.from(state.read);
+    read[bookId] = {...?read[bookId], chapter};
+    final dayIsNew = !state.days.contains(today);
+    final days = dayIsNew ? {...state.days, today} : state.days;
     final visits = Map<String, int>.from(state.visits);
     final vk = '$bookId:$chapter';
     visits[vk] = (visits[vk] ?? 0) + 1;
 
     // Snapshot: primera vez que se completa el libro.
-    final completed = Map<int, String>.from(state.completed);
-    if (totalChapters != null &&
+    final justCompleted =
+        totalChapters != null &&
         read[bookId]!.length >= totalChapters &&
-        !completed.containsKey(bookId)) {
-      completed[bookId] = today;
-    }
+        !state.completed.containsKey(bookId);
+    final completed = justCompleted
+        ? (Map<int, String>.from(state.completed)..[bookId] = today)
+        : state.completed;
 
     state = ReadingProgress(
       lastBookId: bookId,
@@ -300,12 +279,15 @@ class ReadingProgressNotifier extends Notifier<ReadingProgress> {
       _readKey,
       json.encode(read.map((k, v) => MapEntry('$k', v.toList()))),
     );
-    await prefs.setStringList(_daysKey, days.toList());
+    if (dayIsNew) await prefs.setStringList(_daysKey, days.toList());
     await prefs.setString(_visitsKey, json.encode(visits));
-    await prefs.setString(
-      _completedKey,
-      json.encode(completed.map((k, v) => MapEntry('$k', v))),
-    );
+    // Solo cambia la primera vez que se termina un libro.
+    if (justCompleted) {
+      await prefs.setString(
+        _completedKey,
+        json.encode(completed.map((k, v) => MapEntry('$k', v))),
+      );
+    }
   }
 
   /// Reinicia todas las estadísticas de lectura.
