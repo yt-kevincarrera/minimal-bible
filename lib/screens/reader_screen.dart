@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -41,6 +42,26 @@ class _VerseGestures {
   }
 }
 
+/// Índice del último versículo cuya posición ([offsets], en píxeles de scroll y
+/// en orden creciente) ya pasó por el borde superior del viewport, con [slack]
+/// de margen. Se llama al desplazarse, así que va por búsqueda binaria en vez
+/// de recorrer todos los versículos.
+@visibleForTesting
+int activeVerseIndex(List<double> offsets, double pixels, {double slack = 16}) {
+  final limit = pixels + slack;
+  var lo = 0, hi = offsets.length - 1, found = 0;
+  while (lo <= hi) {
+    final mid = (lo + hi) >> 1;
+    if (offsets[mid] <= limit) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   final ScrollController _scroll = ScrollController();
   final Map<int, GlobalKey> _verseKeys = {}; // verse number -> key
@@ -54,12 +75,24 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   bool _showResume = false;
   ScrollStore? _scrollStore;
   Timer? _saveTimer;
+  double? _pendingSave;
+  double _lastSavedOffset = -1;
 
   // Navegador lateral de versículos.
   final GlobalKey _viewportKey = GlobalKey();
   List<int> _verseNumbers = const [];
   int? _previewVerse; // versículo bajo el dedo en la tira
   int? _activeVerse; // versículo actual según el scroll
+  // El versículo activo se publica aparte para que al desplazarse solo se
+  // repinte la tira lateral, sin reconstruir el capítulo entero.
+  final ValueNotifier<int?> _railVerse = ValueNotifier<int?>(null);
+  // Posición (en píxeles de scroll) de cada versículo, medida una sola vez por
+  // layout: durante el scroll basta una búsqueda binaria.
+  List<double> _verseOffsets = const [];
+  double _offsetsExtent = -1; // maxScrollExtent con el que se midió
+  double _offsetsScale = -1;
+  double _offsetsLineHeight = -1;
+  ReaderLayout? _offsetsLayout;
   int _lastActiveCalc = 0;
   SharedPreferences? _prefs;
   final DateTime _openedAt = DateTime.now();
@@ -101,47 +134,73 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         (_scroll.offset - _resumeOffset!).abs() < 80) {
       setState(() => _showResume = false);
     }
-    // Guarda la posición de forma continua (con pequeño retardo) para que
-    // el botón "Continuar" sea fiable aunque la app se cierre de golpe.
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 500), () {
-      if (_scrollStore != null && _scroll.hasClients) {
-        _scrollStore!.save(widget.bookId, widget.chapter, _scroll.offset);
-      }
-    });
+    // Guarda la posición para que el botón "Continuar" sea fiable aunque la
+    // app se cierre de golpe, pero como mucho una vez por segundo: escribir en
+    // disco (y codificar el JSON) mientras el dedo se mueve provoca tirones.
+    _queueSave(_scroll.offset);
     _recomputeActiveVerse();
+  }
+
+  void _queueSave(double offset) {
+    _pendingSave = offset;
+    _saveTimer ??= Timer(const Duration(seconds: 1), _flushSave);
+  }
+
+  void _flushSave() {
+    _saveTimer = null;
+    final offset = _pendingSave;
+    _pendingSave = null;
+    if (offset == null || _scrollStore == null) return;
+    if ((offset - _lastSavedOffset).abs() < 8) return;
+    _lastSavedOffset = offset;
+    _scrollStore!.save(widget.bookId, widget.chapter, offset);
+  }
+
+  /// Mide la posición de cada versículo dentro del contenido desplazable. Es
+  /// O(nº de versículos), así que solo se rehace cuando cambia el layout
+  /// (tamaño de letra, interlineado, ancho…), no en cada frame de scroll.
+  void _measureVerseOffsets() {
+    _verseOffsets = const [];
+    if (!_scroll.hasClients) return;
+    final vp = _viewportKey.currentContext?.findRenderObject() as RenderBox?;
+    if (vp == null || !vp.attached) return;
+    // Y global del contenido en el offset 0.
+    final origin = vp.localToGlobal(Offset.zero).dy - _scroll.offset;
+    final offsets = List<double>.filled(_verseNumbers.length, 0);
+    for (var i = 0; i < _verseNumbers.length; i++) {
+      final box =
+          _verseKeys[_verseNumbers[i]]?.currentContext?.findRenderObject()
+              as RenderBox?;
+      if (box == null || !box.attached) return; // aún sin medir: se reintenta
+      offsets[i] = box.localToGlobal(Offset.zero).dy - origin;
+    }
+    _verseOffsets = offsets;
+    _offsetsExtent = _scroll.position.maxScrollExtent;
   }
 
   void _recomputeActiveVerse() {
     if (_previewVerse != null || _verseNumbers.isEmpty) return;
+    if (!_scroll.hasClients) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastActiveCalc < 90) return; // throttle
     _lastActiveCalc = now;
-    final vp = _viewportKey.currentContext?.findRenderObject() as RenderBox?;
-    if (vp == null) return;
-    final top = vp.localToGlobal(Offset.zero).dy;
-    int? active;
-    for (final v in _verseNumbers) {
-      final ctx = _verseKeys[v]?.currentContext;
-      if (ctx == null) continue;
-      final box = ctx.findRenderObject() as RenderBox?;
-      if (box == null) continue;
-      final y = box.localToGlobal(Offset.zero).dy;
-      if (y <= top + 16) {
-        active = v;
-      } else {
-        break;
-      }
+    final pos = _scroll.position;
+    if (_verseOffsets.length != _verseNumbers.length ||
+        (_offsetsExtent - pos.maxScrollExtent).abs() > 1) {
+      _measureVerseOffsets();
+      if (_verseOffsets.length != _verseNumbers.length) return;
     }
-    active ??= _verseNumbers.first;
+    int active;
     // Al final del scroll los últimos versículos nunca llegan arriba; cuando
     // ya no se puede bajar más, marca el último como activo.
-    if (_scroll.hasClients &&
-        _scroll.position.pixels >= _scroll.position.maxScrollExtent - 4) {
+    if (pos.pixels >= pos.maxScrollExtent - 4) {
       active = _verseNumbers.last;
+    } else {
+      active = _verseNumbers[activeVerseIndex(_verseOffsets, pos.pixels)];
     }
-    if (active != _activeVerse && mounted) {
-      setState(() => _activeVerse = active);
+    if (active != _activeVerse) {
+      _activeVerse = active;
+      _railVerse.value = active;
     }
   }
 
@@ -198,6 +257,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     for (final g in _gestures.values) {
       g.dispose();
     }
+    _railVerse.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -442,6 +502,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final scale = ref.watch(fontScaleProvider);
     final lineHeight = ref.watch(lineHeightProvider);
     final layout = ref.watch(readerLayoutProvider);
+    // Si cambia la tipografía o el diseño, las posiciones medidas ya no valen.
+    if (scale != _offsetsScale ||
+        lineHeight != _offsetsLineHeight ||
+        layout != _offsetsLayout) {
+      _offsetsScale = scale;
+      _offsetsLineHeight = lineHeight;
+      _offsetsLayout = layout;
+      _verseOffsets = const [];
+    }
     final headings = ref
         .watch(
           chapterHeadingsProvider(ChapterRef(widget.bookId, widget.chapter)),
@@ -632,15 +701,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                           top: 8,
                           bottom: 8,
                           right: 0,
-                          child: _VerseRail(
-                            verses: _verseNumbers,
-                            headings: headings,
-                            activeVerse: _previewVerse ?? _activeVerse,
-                            onPreview: (v) => setState(() => _previewVerse = v),
-                            onJump: (v) {
-                              setState(() => _previewVerse = null);
-                              _jumpToVerse(v);
-                            },
+                          // Aislada en su propia capa: al moverse el dedo por
+                          // la tira no se repinta el texto del capítulo.
+                          child: RepaintBoundary(
+                            child: _VerseRail(
+                              verses: _verseNumbers,
+                              headings: headings,
+                              activeVerse: _railVerse,
+                              // Sin setState: la tira ya se pinta sola y así
+                              // arrastrar no reconstruye la pantalla.
+                              onPreview: (v) => _previewVerse = v,
+                              onJump: (v) {
+                                _previewVerse = null;
+                                _jumpToVerse(v);
+                              },
+                            ),
                           ),
                         ),
                     ],
@@ -888,79 +963,101 @@ class _ChapterText extends StatelessWidget {
       height: 1.3,
     );
 
-    InlineSpan numberSpan(Verse v) => WidgetSpan(
-      alignment: PlaceholderAlignment.top,
-      child: Padding(
-        padding: const EdgeInsets.only(right: 5, left: 2),
-        child: Container(
+    InlineSpan numberSpan(Verse v) {
+      Widget number = Text('${v.verse}', style: numStyle);
+      if (highlightVerse == v.verse) {
+        number = DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.accent.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+            child: number,
+          ),
+        );
+      }
+      return WidgetSpan(
+        alignment: PlaceholderAlignment.top,
+        // La clave va en el Padding: es el ancla que se mide para saber por
+        // dónde va el scroll y para saltar a un versículo.
+        child: Padding(
           key: verseKeys[v.verse],
-          decoration: highlightVerse == v.verse
-              ? BoxDecoration(
-                  color: colors.accent.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(3),
-                )
-              : null,
-          padding: highlightVerse == v.verse
-              ? const EdgeInsets.symmetric(horizontal: 3, vertical: 1)
-              : EdgeInsets.zero,
-          child: Text('${v.verse}', style: numStyle),
+          padding: const EdgeInsets.only(right: 5, left: 2),
+          child: number,
         ),
-      ),
-    );
+      );
+    }
 
     final blocks = _toBlocks();
 
+    // Cada bloque va en su propia capa (RepaintBoundary): al desplazarse, el
+    // texto ya pintado solo se mueve, en vez de volver a pintarse entero en
+    // cada frame — que es lo que hacía que el scroll se sintiera pesado.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 12),
-        if (book != null)
-          Text(
-            book!.name.toUpperCase(),
-            textAlign: TextAlign.center,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: colors.inkSoft,
-              letterSpacing: 2.4,
-            ),
-          ),
-        const SizedBox(height: 6),
-        Text(
-          '$chapterNum',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.displayLarge?.copyWith(
-            fontSize: 48,
-            color: colors.accent,
-            fontWeight: FontWeight.w400,
+        RepaintBoundary(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 12),
+              if (book != null)
+                Text(
+                  book!.name.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: colors.inkSoft,
+                    letterSpacing: 2.4,
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Text(
+                '$chapterNum',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.displayLarge?.copyWith(
+                  fontSize: 48,
+                  color: colors.accent,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Center(
+                child: Container(width: 40, height: 2, color: colors.divider),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 4),
-        Center(child: Container(width: 40, height: 2, color: colors.divider)),
         const SizedBox(height: 20),
         for (final block in blocks) ...[
           if (block.title != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 18, bottom: 8),
-              child: Text(block.title!, style: titleStyle),
+            RepaintBoundary(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 18, bottom: 8),
+                child: Text(block.title!, style: titleStyle),
+              ),
             ),
-          RichText(
-            textAlign: layout.versePerLine
-                ? TextAlign.left
-                : (layout.justify ? TextAlign.justify : TextAlign.left),
-            text: TextSpan(
-              style: body,
-              children: [
-                for (final v in block.verses) ...[
-                  numberSpan(v),
-                  TextSpan(
-                    text: v.text,
-                    recognizer: selectionMode
-                        ? gestures[v.id]?.tap
-                        : gestures[v.id]?.longPress,
-                    style: verseStyle(v),
-                  ),
-                  TextSpan(text: layout.versePerLine ? '\n' : '  '),
+          RepaintBoundary(
+            child: RichText(
+              textAlign: layout.versePerLine
+                  ? TextAlign.left
+                  : (layout.justify ? TextAlign.justify : TextAlign.left),
+              text: TextSpan(
+                style: body,
+                children: [
+                  for (final v in block.verses) ...[
+                    numberSpan(v),
+                    TextSpan(
+                      text: v.text,
+                      recognizer: selectionMode
+                          ? gestures[v.id]?.tap
+                          : gestures[v.id]?.longPress,
+                      style: verseStyle(v),
+                    ),
+                    TextSpan(text: layout.versePerLine ? '\n' : '  '),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ],
@@ -1698,7 +1795,7 @@ class _NavButton extends StatelessWidget {
 class _VerseRail extends StatefulWidget {
   final List<int> verses;
   final Map<int, String> headings; // verso -> título (inicio de grupo)
-  final int? activeVerse;
+  final ValueListenable<int?> activeVerse;
   final ValueChanged<int?> onPreview;
   final ValueChanged<int> onJump;
 
@@ -1777,100 +1874,105 @@ class _VerseRailState extends State<_VerseRail> {
       if (widget.headings.containsKey(widget.verses[i])) groupStarts.add(i);
     }
 
-    int? activeIndex;
-    if (_y != null) {
-      activeIndex = _indexAt(_y!);
-    } else if (widget.activeVerse != null) {
-      final i = widget.verses.indexOf(widget.activeVerse!);
-      if (i >= 0) activeIndex = i;
-    }
-
     return LayoutBuilder(
       builder: (ctx, constraints) {
         _h = constraints.maxHeight;
         final previewVerse = _y != null ? widget.verses[_indexAt(_y!)] : null;
         final title = previewVerse != null ? _groupTitle(previewVerse) : null;
 
-        return Semantics(
-          slider: true,
-          label: 'Navegador de versículos',
-          value: widget.activeVerse != null
-              ? 'Versículo ${widget.activeVerse}'
-              : null,
-          child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (e) => _track(_toLocal(ctx, e.position)),
-          onPointerMove: (e) => _track(_toLocal(ctx, e.position)),
-          onPointerUp: (e) => _commit(_toLocal(ctx, e.position)),
-          onPointerCancel: (_) {
-            setState(() => _y = null);
-            widget.onPreview(null);
-          },
-          child: SizedBox(
-            width: _w,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _RailPainter(
-                      count: widget.verses.length,
-                      activeIndex: activeIndex,
-                      previewY: _y,
-                      groupStarts: groupStarts,
-                      tickColor: colors.inkSoft.withValues(alpha: 0.45),
-                      accent: colors.accent,
-                    ),
-                  ),
-                ),
-                if (previewVerse != null)
-                  Positioned(
-                    right: _w + 6,
-                    top: (_y! - 24).clamp(0.0, _h - 48),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 230),
-                      child: Material(
-                        color: colors.surface,
-                        elevation: 3,
-                        shadowColor: Colors.black26,
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (title != null)
-                                Text(
-                                  title,
-                                  textAlign: TextAlign.right,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colors.ink,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              Text(
-                                'Versículo $previewVerse',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: colors.accent,
-                                  letterSpacing: 0.4,
-                                ),
-                              ),
-                            ],
+        return ValueListenableBuilder<int?>(
+          valueListenable: widget.activeVerse,
+          builder: (context, activeVerse, _) {
+            int? activeIndex;
+            if (_y != null) {
+              activeIndex = _indexAt(_y!);
+            } else if (activeVerse != null) {
+              final i = widget.verses.indexOf(activeVerse);
+              if (i >= 0) activeIndex = i;
+            }
+
+            return Semantics(
+              slider: true,
+              label: 'Navegador de versículos',
+              value: activeVerse != null ? 'Versículo $activeVerse' : null,
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: (e) => _track(_toLocal(ctx, e.position)),
+                onPointerMove: (e) => _track(_toLocal(ctx, e.position)),
+                onPointerUp: (e) => _commit(_toLocal(ctx, e.position)),
+                onPointerCancel: (_) {
+                  setState(() => _y = null);
+                  widget.onPreview(null);
+                },
+                child: SizedBox(
+                  width: _w,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned.fill(
+                        child: CustomPaint(
+                          painter: _RailPainter(
+                            count: widget.verses.length,
+                            activeIndex: activeIndex,
+                            previewY: _y,
+                            groupStarts: groupStarts,
+                            tickColor: colors.inkSoft.withValues(alpha: 0.45),
+                            accent: colors.accent,
                           ),
                         ),
                       ),
-                    ),
+                      if (previewVerse != null)
+                        Positioned(
+                          right: _w + 6,
+                          top: (_y! - 24).clamp(0.0, _h - 48),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 230),
+                            child: Material(
+                              color: colors.surface,
+                              elevation: 3,
+                              shadowColor: Colors.black26,
+                              borderRadius: BorderRadius.circular(10),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (title != null)
+                                      Text(
+                                        title,
+                                        textAlign: TextAlign.right,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: colors.ink,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    Text(
+                                      'Versículo $previewVerse',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: colors.accent,
+                                            letterSpacing: 0.4,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
-            ),
-          ),
-          ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
