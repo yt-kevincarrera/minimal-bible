@@ -27,38 +27,77 @@ class Reference {
   int get hashCode => Object.hash(book.id, chapter, verse);
 }
 
+// Compiladas una vez: normRef se llama por cada libro y alias, y antes cada
+// llamada recompilaba las seis expresiones.
+final _reA = RegExp('[áàä]');
+final _reE = RegExp('[éèë]');
+final _reI = RegExp('[íìï]');
+final _reO = RegExp('[óòö]');
+final _reU = RegExp('[úùü]');
+final _reNotAlnum = RegExp('[^a-z0-9]');
+
 /// Normaliza para comparar referencias: minúsculas, sin tildes y sin nada que
 /// no sea letra o dígito (así "1 Co", "1co" y "1 Co." son equivalentes).
 String normRef(String s) => s
     .toLowerCase()
-    .replaceAll(RegExp('[áàä]'), 'a')
-    .replaceAll(RegExp('[éèë]'), 'e')
-    .replaceAll(RegExp('[íìï]'), 'i')
-    .replaceAll(RegExp('[óòö]'), 'o')
-    .replaceAll(RegExp('[úùü]'), 'u')
+    .replaceAll(_reA, 'a')
+    .replaceAll(_reE, 'e')
+    .replaceAll(_reI, 'i')
+    .replaceAll(_reO, 'o')
+    .replaceAll(_reU, 'u')
     .replaceAll('ñ', 'n')
-    .replaceAll(RegExp('[^a-z0-9]'), '');
+    .replaceAll(_reNotAlnum, '');
+
+/// Token normalizado -> id de libro, para nombres completos y alias. Se
+/// construye una sola vez (al primer uso): antes se normalizaban los 66 nombres
+/// y sus alias en cada intento de reconocer una cita, o sea en cada tecla que
+/// se escribe en el buscador.
+///
+/// Se recorre en el mismo orden que antes y con `putIfAbsent`, así el primero
+/// que reclama un token sigue ganando.
+final Map<String, int> _bookIdByToken = () {
+  final map = <String, int>{};
+  for (final b in canonicalBooks) {
+    map.putIfAbsent(normRef(b.name), () => b.id);
+    for (final alias in bookGotoAliases[b.id] ?? const <String>[]) {
+      map.putIfAbsent(normRef(alias), () => b.id);
+    }
+  }
+  return map;
+}();
 
 /// Devuelve el id del libro cuyo nombre completo o alias coincide EXACTAMENTE
 /// con [token] (ya normalizado). No usa coincidencia por prefijo, para no
 /// disparar "ir a la cita" con palabras normales de búsqueda. Devuelve null si
 /// no hay coincidencia exacta.
-int? bookIdForToken(String token) {
-  if (token.isEmpty) return null;
-  for (final b in canonicalBooks) {
-    if (normRef(b.name) == token) return b.id;
-    for (final alias in bookGotoAliases[b.id] ?? const <String>[]) {
-      if (normRef(alias) == token) return b.id;
-    }
-  }
-  return null;
-}
+int? bookIdForToken(String token) =>
+    token.isEmpty ? null : _bookIdByToken[token];
 
 Book? _bookById(int id, List<Book> books) {
   for (final b in books) {
     if (b.id == id) return b;
   }
   return null;
+}
+
+final _reCitation = RegExp(
+  r'^\s*([0-9]?\s*[^\d:]+?)\s+(\d+)(?::(\d+))?\s*$',
+  unicode: true,
+);
+
+/// Nombre y abreviatura normalizados de cada libro de [books], en su orden.
+/// Memorizado por identidad de la lista: `booksProvider` la mantiene estable,
+/// así que normalizar los 66 libros pasa de ser por pulsación a una sola vez.
+List<Book> _normCacheFor = const [];
+List<(String, String, Book)> _normCache = const [];
+
+List<(String, String, Book)> _normalizedBooks(List<Book> books) {
+  if (identical(_normCacheFor, books)) return _normCache;
+  _normCache = [
+    for (final b in books) (normRef(b.name), normRef(b.abbr), b),
+  ];
+  _normCacheFor = books;
+  return _normCache;
 }
 
 /// Interpreta lo que escribe el usuario como una referencia bíblica.
@@ -71,10 +110,7 @@ Reference? parseReference(String input, List<Book> books) {
   if (trimmed.isEmpty || books.isEmpty) return null;
 
   // Caso con número: "<libro> <cap>[:<verso>]".
-  final m = RegExp(
-    r'^\s*([0-9]?\s*[^\d:]+?)\s+(\d+)(?::(\d+))?\s*$',
-    unicode: true,
-  ).firstMatch(trimmed);
+  final m = _reCitation.firstMatch(trimmed);
   if (m != null) {
     final bookPart = normRef(m.group(1)!);
     final chapter = int.tryParse(m.group(2)!);
@@ -108,9 +144,7 @@ Book? _resolveBook(
     if (b != null) return b;
   }
   Book? prefix;
-  for (final b in books) {
-    final n = normRef(b.name);
-    final a = normRef(b.abbr);
+  for (final (n, a, b) in _normalizedBooks(books)) {
     if (n == token || a == token) return b;
     if (allowPrefix &&
         prefix == null &&

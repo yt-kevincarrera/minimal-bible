@@ -320,6 +320,9 @@ class _SearchFilters extends ConsumerWidget {
   }
 }
 
+// Compilada una vez: se usa al pintar cada resultado visible.
+final _reSnippetBold = RegExp(r'<b>(.*?)</b>');
+
 class _HitTile extends ConsumerWidget {
   final SearchHit hit;
   const _HitTile({required this.hit});
@@ -372,9 +375,8 @@ class _HitTile extends ConsumerWidget {
 
   List<InlineSpan> _parseSnippet(String snippet, AppColors colors) {
     final spans = <InlineSpan>[];
-    final re = RegExp(r'<b>(.*?)</b>');
     int i = 0;
-    for (final m in re.allMatches(snippet)) {
+    for (final m in _reSnippetBold.allMatches(snippet)) {
       if (m.start > i) spans.add(TextSpan(text: snippet.substring(i, m.start)));
       spans.add(
         TextSpan(
