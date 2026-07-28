@@ -9,7 +9,16 @@ import 'reader_screen.dart';
 
 class ChaptersScreen extends ConsumerWidget {
   final Book book;
-  const ChaptersScreen({super.key, required this.book});
+
+  /// Cuando se abre desde el lector (tocando el título), al elegir capítulo se
+  /// reemplaza esta pantalla en vez de apilar otro lector encima.
+  final bool replaceOnSelect;
+
+  const ChaptersScreen({
+    super.key,
+    required this.book,
+    this.replaceOnSelect = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -76,12 +85,16 @@ class ChaptersScreen extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(10),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(10),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
+                          onTap: () {
+                            final route = MaterialPageRoute(
                               builder: (_) =>
                                   ReaderScreen(bookId: book.id, chapter: ch),
-                            ),
-                          ),
+                            );
+                            final nav = Navigator.of(context);
+                            replaceOnSelect
+                                ? nav.pushReplacement(route)
+                                : nav.push(route);
+                          },
                           child: Container(
                             alignment: Alignment.center,
                             decoration: BoxDecoration(

@@ -2,11 +2,14 @@ package dev.kevin.minimal_bible
 
 import android.content.Intent
 import android.provider.Settings
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// Extiende AudioServiceActivity (subclase de FlutterActivity) para que la
+// lectura en voz alta en segundo plano y los controles de la notificación
+// funcionen aunque la app se relance desde la notificación.
+class MainActivity : AudioServiceActivity() {
     private val channel = "minimal_bible/tts"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

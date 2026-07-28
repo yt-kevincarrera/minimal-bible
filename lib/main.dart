@@ -1,14 +1,45 @@
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'screens/home_screen.dart';
 import 'state/providers.dart';
+import 'state/tts_audio_handler.dart';
 import 'state/tts_controller.dart';
 import 'theme.dart';
 
-void main() {
-  runApp(const ProviderScope(child: MinimalBibleApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // En móvil, arranca el servicio de medios para poder leer en segundo plano
+  // y mostrar la notificación con controles. En web/escritorio no aplica.
+  final useAudioService =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+  final TtsAudioHandler handler;
+  if (useAudioService) {
+    handler = await AudioService.init(
+      builder: TtsAudioHandler.new,
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'dev.kevin.minimal_bible.tts',
+        androidNotificationChannelName: 'Lectura en voz alta',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      ),
+    );
+  } else {
+    handler = TtsAudioHandler();
+  }
+
+  runApp(
+    ProviderScope(
+      overrides: [ttsAudioHandlerProvider.overrideWithValue(handler)],
+      child: const MinimalBibleApp(),
+    ),
+  );
 }
 
 class MinimalBibleApp extends ConsumerWidget {

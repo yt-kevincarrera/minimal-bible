@@ -71,6 +71,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   int? _activeHighlight;
   Timer? _highlightTimer;
   bool _resumeInit = false;
+  bool _didInitialScroll = false;
   double? _resumeOffset;
   bool _showResume = false;
   ScrollStore? _scrollStore;
@@ -118,12 +119,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ref
           .read(readingProgressProvider.notifier)
           .visit(widget.bookId, widget.chapter, totalChapters: total);
-      if (_activeHighlight != null) {
-        _scrollToVerse(_activeHighlight!);
-        _highlightTimer = Timer(const Duration(seconds: 2), () {
-          if (mounted) setState(() => _activeHighlight = null);
-        });
-      }
+    });
+  }
+
+  /// Salta al versículo resaltado (búsqueda / "ir a cita") una sola vez, ya
+  /// con los datos del capítulo cargados. No puede hacerse en initState porque
+  /// el capítulo llega de forma asíncrona: en la primera apertura las keys de
+  /// los versículos aún no existen y el scroll no encontraba el destino.
+  void _maybeInitialScroll() {
+    if (_didInitialScroll || _activeHighlight == null) return;
+    _didInitialScroll = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToVerse(_activeHighlight!);
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _activeHighlight = null);
+      });
     });
   }
 
@@ -535,8 +546,24 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final ttsHere = ttsState.isFor(widget.bookId, widget.chapter);
     final speakingVerse = ttsHere ? ttsState.verse : null;
 
-    // Auto-scroll al versículo que se está leyendo.
+    // Auto-scroll al versículo que se está leyendo y seguimiento del
+    // auto-continuar: cuando la lectura salta de este capítulo al siguiente,
+    // lleva el lector hasta allí para seguir el texto y el resaltado.
     ref.listen(ttsControllerProvider, (prev, next) {
+      final wasHere = prev?.isFor(widget.bookId, widget.chapter) ?? false;
+      if (wasHere &&
+          next.isActive &&
+          (next.bookId != widget.bookId || next.chapter != widget.chapter)) {
+        final b = next.bookId!;
+        final c = next.chapter!;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            chapterRoute(ReaderScreen(bookId: b, chapter: c), forward: true),
+          );
+        });
+        return;
+      }
       if (!next.isFor(widget.bookId, widget.chapter)) {
         _lastSpokenVerse = null;
         return;
@@ -633,6 +660,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             _ensureGestures(verses);
             _verseNumbers = [for (final v in verses) v.verse];
             _maybeInitResume();
+            _maybeInitialScroll();
             return Column(
               children: [
                 Expanded(
@@ -746,6 +774,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (_resumeInit) return;
     _resumeInit = true;
     if (_activeHighlight != null) return;
+    // Si llegamos aquí siguiendo la lectura en voz alta (auto-continuar), no
+    // ofrezcas "Continuar donde lo dejé": el TTS ya está guiando la lectura.
+    if (ref.read(ttsControllerProvider).isFor(widget.bookId, widget.chapter)) {
+      return;
+    }
     final off = ref
         .read(scrollStoreProvider.notifier)
         .offsetFor(widget.bookId, widget.chapter);
@@ -786,8 +819,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _openChapters(Book book) {
+    // Reemplaza este lector por el selector de capítulos; al elegir uno, el
+    // selector se reemplaza de nuevo por el lector. Así no se acumulan
+    // pantallas de selección en la pila al saltar entre capítulos.
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => ChaptersScreen(book: book)),
+      MaterialPageRoute(
+        builder: (_) => ChaptersScreen(book: book, replaceOnSelect: true),
+      ),
     );
   }
 
@@ -1224,8 +1262,10 @@ class _Action extends StatelessWidget {
   }
 }
 
-/// Barra de control de la lectura en voz alta (sustituye al pie de navegación
-/// mientras se está leyendo el capítulo).
+/// Reproductor de la lectura en voz alta (sustituye al pie de navegación
+/// mientras se lee el capítulo). Barra de progreso del capítulo, versículo
+/// actual y controles: detener, anterior, reproducir/pausar, siguiente y
+/// velocidad.
 class _TtsBar extends ConsumerWidget {
   final VoidCallback onStop;
   const _TtsBar({required this.onStop});
@@ -1239,6 +1279,16 @@ class _TtsBar extends ConsumerWidget {
     final ctrl = ref.read(ttsControllerProvider.notifier);
     final playing = st.status == TtsStatus.playing;
 
+    final bookName = st.bookId == null
+        ? ''
+        : ref.watch(bookProvider(st.bookId!)).valueOrNull?.name ?? '';
+    final position = st.total > 0
+        ? '${st.index + 1} de ${st.total}'
+        : '${st.verse ?? ''}';
+    final title = [
+      if (bookName.isNotEmpty) '$bookName ${st.chapter ?? ''}'.trim(),
+    ].join();
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: colors.divider)),
@@ -1246,73 +1296,148 @@ class _TtsBar extends ConsumerWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.stop),
-                tooltip: 'Detener',
-                color: colors.ink,
-                onPressed: onStop,
-              ),
-              IconButton(
-                icon: Icon(
-                  playing ? Icons.pause_circle : Icons.play_circle,
-                ),
-                iconSize: 34,
-                tooltip: playing ? 'Pausar' : 'Reanudar',
-                color: colors.accent,
-                onPressed: ctrl.toggle,
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  st.verse != null
-                      ? 'Leyendo · versículo ${st.verse}'
-                      : 'Lectura en voz alta',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.inkSoft,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Progreso del capítulo por número de versículo.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: st.progress,
+                      minHeight: 3,
+                      color: colors.accent,
+                      backgroundColor: colors.divider,
+                    ),
                   ),
                 ),
-              ),
-              PopupMenuButton<double>(
-                tooltip: 'Velocidad',
-                initialValue: rate,
-                onSelected: ctrl.setRate,
-                itemBuilder: (_) => [
-                  for (final s in const [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0])
-                    PopupMenuItem(value: s, child: Text(_fmtRate(s))),
-                ],
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: colors.divider),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 12, 2),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.speed, size: 16, color: colors.accent),
-                      const SizedBox(width: 5),
-                      Text(
-                        _fmtRate(rate),
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: colors.ink,
+                      Expanded(
+                        child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colors.inkSoft,
+                            ),
+                            children: [
+                              if (title.isNotEmpty)
+                                TextSpan(
+                                  text: title,
+                                  style: TextStyle(
+                                    color: colors.ink,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              TextSpan(
+                                text: title.isNotEmpty
+                                    ? '  ·  versículo $position'
+                                    : 'Versículo $position',
+                              ),
+                            ],
+                          ),
                         ),
                       ),
+                      _SpeedChip(rate: rate, onSelected: ctrl.setRate),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 6),
-            ],
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.stop),
+                        tooltip: 'Detener',
+                        color: colors.inkSoft,
+                        onPressed: onStop,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.skip_previous),
+                        iconSize: 30,
+                        tooltip: 'Versículo anterior',
+                        color: colors.ink,
+                        onPressed: ctrl.previous,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: Icon(
+                          playing
+                              ? Icons.pause_circle_filled
+                              : Icons.play_circle_fill,
+                        ),
+                        iconSize: 46,
+                        tooltip: playing ? 'Pausar' : 'Reanudar',
+                        color: colors.accent,
+                        onPressed: ctrl.toggle,
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.skip_next),
+                        iconSize: 30,
+                        tooltip: 'Versículo siguiente',
+                        color: colors.ink,
+                        onPressed: ctrl.next,
+                      ),
+                      const SizedBox(width: 4),
+                      // Contrapeso invisible para centrar el play respecto al
+                      // botón de detener de la izquierda.
+                      const SizedBox(width: 48),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pastilla de velocidad reutilizable (menú 0.5x–2x).
+class _SpeedChip extends StatelessWidget {
+  final double rate;
+  final ValueChanged<double> onSelected;
+  const _SpeedChip({required this.rate, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final theme = Theme.of(context);
+    return PopupMenuButton<double>(
+      tooltip: 'Velocidad',
+      initialValue: rate,
+      onSelected: onSelected,
+      itemBuilder: (_) => [
+        for (final s in const [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0])
+          PopupMenuItem(value: s, child: Text(_fmtRate(s))),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border.all(color: colors.divider),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.speed, size: 16, color: colors.accent),
+            const SizedBox(width: 5),
+            Text(
+              _fmtRate(rate),
+              style: theme.textTheme.labelLarge?.copyWith(color: colors.ink),
+            ),
+          ],
         ),
       ),
     );
@@ -1336,7 +1461,6 @@ class _ReadingOptionsSheet extends ConsumerWidget {
     final scale = ref.watch(fontScaleProvider);
     final notifier = ref.read(fontScaleProvider.notifier);
     final keepAwake = ref.watch(keepAwakeProvider);
-    final rate = ref.watch(ttsRateProvider);
     final lineHeight = ref.watch(lineHeightProvider);
     final layout = ref.watch(readerLayoutProvider);
     final layoutN = ref.read(readerLayoutProvider.notifier);
@@ -1492,43 +1616,6 @@ class _ReadingOptionsSheet extends ConsumerWidget {
                 ref.read(keepAwakeProvider.notifier).set(v);
                 WakelockPlus.toggle(enable: v);
               },
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'VELOCIDAD DE VOZ',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: colors.inkSoft,
-                letterSpacing: 1.6,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(Icons.speed, color: colors.inkSoft),
-                Expanded(
-                  child: Slider(
-                    value: rate,
-                    min: TtsRateNotifier.minRate,
-                    max: TtsRateNotifier.maxRate,
-                    divisions: 6,
-                    activeColor: colors.accent,
-                    inactiveColor: colors.divider,
-                    label: _fmtRate(rate),
-                    onChanged: (v) =>
-                        ref.read(ttsControllerProvider.notifier).setRate(v),
-                  ),
-                ),
-                SizedBox(
-                  width: 46,
-                  child: Text(
-                    _fmtRate(rate),
-                    textAlign: TextAlign.end,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: colors.ink,
-                    ),
-                  ),
-                ),
-              ],
             ),
           ],
         ),

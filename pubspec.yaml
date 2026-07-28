@@ -26,6 +26,8 @@ dependencies:
   wakelock_plus: ^1.2.8
   url_launcher: ^6.3.1
   flutter_tts: ^4.0.2 # lectura en voz alta con el motor TTS del sistema
+  audio_service: ^0.18.19
+  audio_session: ^0.2.4
 
 dev_dependencies:
   flutter_test:
