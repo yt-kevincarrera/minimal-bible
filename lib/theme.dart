@@ -41,8 +41,57 @@ const List<AccentPalette> accentPalettes = [
   AccentPalette('Ciruela', Color(0xFF6D3F73), Color(0xFFC79BCC)),
 ];
 
-/// Colores de resaltado de versículos. El índice se guarda en la base de
-/// datos; el color real se elige según el tema claro/oscuro.
+/// Un color libre elegido por el usuario se guarda como un entero ARGB (ver
+/// [encodeCustomColor]); los valores pequeños siguen siendo índices de las
+/// paletas predefinidas. Así lo ya guardado (0..n) no cambia de significado.
+const int kCustomColorFlag = 0x1000000;
+
+bool isCustomColor(int value) => value >= kCustomColorFlag;
+
+/// Empaqueta un color como entero opaco (siempre >= [kCustomColorFlag]).
+int encodeCustomColor(Color color) =>
+    0xFF000000 | (color.toARGB32() & 0xFFFFFF);
+
+Color decodeCustomColor(int value) => Color(0xFF000000 | (value & 0xFFFFFF));
+
+String hexOf(Color color) {
+  final rgb = color.toARGB32() & 0xFFFFFF;
+  return '#${rgb.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+}
+
+/// Paleta de acento a partir de un color libre. El acento se pinta sobre papel
+/// claro o sobre carbón, así que se ajusta la luminosidad a cada tema en vez de
+/// usar el mismo tono en los dos (ilegible en uno de ellos).
+AccentPalette customAccentPalette(Color color) {
+  final hsl = HSLColor.fromColor(color);
+  final light = hsl
+      .withSaturation(hsl.saturation.clamp(0.18, 1.0))
+      .withLightness(hsl.lightness.clamp(0.22, 0.46))
+      .toColor();
+  final dark = hsl
+      .withSaturation(hsl.saturation.clamp(0.28, 0.85))
+      .withLightness(hsl.lightness.clamp(0.60, 0.80))
+      .toColor();
+  return AccentPalette('Personalizado', light, dark);
+}
+
+/// Paleta de acento del valor guardado: índice predefinido o color libre.
+AccentPalette accentPaletteFor(int value) {
+  if (isCustomColor(value)) {
+    return customAccentPalette(decodeCustomColor(value));
+  }
+  return accentPalettes[value.clamp(0, accentPalettes.length - 1)];
+}
+
+/// Color que representa el acento en el tema actual (para las muestras).
+Color accentColorFor(int value, bool isDark) {
+  final p = accentPaletteFor(value);
+  return isDark ? p.dark : p.light;
+}
+
+/// Colores de resaltado predefinidos: un toque y listo. En la base de datos
+/// se guarda su índice (o un color libre, ver [encodeCustomColor]) y el color
+/// real se elige según el tema claro/oscuro.
 class HighlightSwatch {
   final String name;
   final Color light;
@@ -59,12 +108,38 @@ const List<HighlightSwatch> highlightSwatches = [
   HighlightSwatch('Lila', Color(0xFFB79BDB), Color(0xFF6B4E96)),
 ];
 
-Color highlightColorFor(int index, bool isDark) {
-  if (index < 0 || index >= highlightSwatches.length) {
+/// Variante oscura de un resaltado libre: mismo tono, algo menos saturado y
+/// más apagado, igual que la relación entre las parejas de
+/// [highlightSwatches] (el tinte se pinta detrás del texto claro).
+Color customHighlightFor(Color color, bool isDark) {
+  if (!isDark) return color;
+  final hsl = HSLColor.fromColor(color);
+  return hsl
+      .withSaturation((hsl.saturation * 0.78).clamp(0.0, 1.0))
+      .withLightness((hsl.lightness * 0.6).clamp(0.16, 0.48))
+      .toColor();
+}
+
+/// Color de un resaltado guardado: índice de [highlightSwatches] o, si el
+/// valor supera [kCustomColorFlag], el color libre que eligió el usuario.
+Color highlightColorFor(int value, bool isDark) {
+  if (isCustomColor(value)) {
+    return customHighlightFor(decodeCustomColor(value), isDark);
+  }
+  if (value < 0 || value >= highlightSwatches.length) {
     return highlightSwatches.first.light;
   }
-  final s = highlightSwatches[index];
+  final s = highlightSwatches[value];
   return isDark ? s.dark : s.light;
+}
+
+/// Nombre para mostrar de un resaltado guardado.
+String highlightNameFor(int value) {
+  if (isCustomColor(value)) return hexOf(decodeCustomColor(value));
+  if (value < 0 || value >= highlightSwatches.length) {
+    return highlightSwatches.first.name;
+  }
+  return highlightSwatches[value].name;
 }
 
 ThemeData buildLightTheme(AccentPalette palette) =>

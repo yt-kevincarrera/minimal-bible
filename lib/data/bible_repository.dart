@@ -302,6 +302,16 @@ class BibleRepository {
     await batch.commit(noResult: true);
   }
 
+  /// Cambia de color todos los versículos resaltados con [from]. Se usa al
+  /// editar un color libre de la paleta del usuario.
+  Future<void> recolorHighlights(int from, int to) async {
+    if (from == to) return;
+    await _db.rawUpdate(
+      'UPDATE verse_highlights SET color = ? WHERE color = ?',
+      [to, from],
+    );
+  }
+
   Future<void> removeHighlights(List<int> verseIds) async {
     if (verseIds.isEmpty) return;
     final placeholders = List.filled(verseIds.length, '?').join(',');

@@ -227,13 +227,14 @@ class _ColorsSection extends ConsumerWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  for (var i = 0; i < highlightSwatches.length; i++)
-                    if ((counts[i] ?? 0) > 0)
-                      _ColorChip(
-                        index: i,
-                        count: counts[i]!,
-                        color: highlightColorFor(i, isDark),
-                      ),
+                  // Primero los predefinidos en su orden; después los colores
+                  // libres del usuario, los más usados delante.
+                  for (final value in _sortedColors(counts))
+                    _ColorChip(
+                      value: value,
+                      count: counts[value]!,
+                      color: highlightColorFor(value, isDark),
+                    ),
                 ],
               ),
             ],
@@ -245,12 +246,22 @@ class _ColorsSection extends ConsumerWidget {
   }
 }
 
+/// Colores con al menos un versículo: predefinidos por índice y, detrás, los
+/// libres ordenados por uso.
+List<int> _sortedColors(Map<int, int> counts) {
+  final used = counts.entries.where((e) => e.value > 0).map((e) => e.key);
+  final preset = used.where((v) => !isCustomColor(v)).toList()..sort();
+  final custom = used.where(isCustomColor).toList()
+    ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+  return [...preset, ...custom];
+}
+
 class _ColorChip extends StatelessWidget {
-  final int index;
+  final int value;
   final int count;
   final Color color;
   const _ColorChip({
-    required this.index,
+    required this.value,
     required this.count,
     required this.color,
   });
@@ -262,7 +273,7 @@ class _ColorChip extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ColorVersesScreen(colorIndex: index)),
+        MaterialPageRoute(builder: (_) => ColorVersesScreen(color: value)),
       ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -281,7 +292,7 @@ class _ColorChip extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              '${highlightSwatches[index].name} · $count',
+              '${highlightNameFor(value)} · $count',
               style: theme.textTheme.bodySmall?.copyWith(color: colors.ink),
             ),
           ],
