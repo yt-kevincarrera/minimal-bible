@@ -48,9 +48,8 @@ class MinimalBibleApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
-    final accentIndex = ref.watch(accentProvider);
-    final palette =
-        accentPalettes[accentIndex.clamp(0, accentPalettes.length - 1)];
+    final accent = ref.watch(accentProvider);
+    final palette = accentPaletteFor(accent);
     return MaterialApp(
       title: 'La Biblia',
       debugShowCheckedModeBanner: false,
@@ -92,6 +91,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       ref.read(lineHeightProvider.notifier).load();
       ref.read(readerLayoutProvider.notifier).load();
       ref.read(recentSearchesProvider.notifier).load();
+      ref.read(customHighlightsProvider.notifier).load();
     });
   }
 

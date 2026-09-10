@@ -10,6 +10,7 @@ import '../data/bible_repository.dart';
 import '../data/books.dart';
 import '../data/database.dart';
 import '../data/models.dart';
+import '../theme.dart';
 
 final databaseProvider = FutureProvider<BibleDatabase>((ref) async {
   final db = BibleDatabase();
@@ -575,6 +576,10 @@ final savedVerseCountProvider = FutureProvider<int>((ref) async {
   return repo.savedVerseCount();
 });
 
+/// Acento activo: un índice de [accentPalettes] o, si supera
+/// [kCustomColorFlag], un color libre empaquetado (ver [encodeCustomColor]).
+/// Se conserva la clave antigua porque los valores 0..n siguen significando
+/// lo mismo.
 class AccentNotifier extends Notifier<int> {
   static const _key = 'accent_index';
 
@@ -586,12 +591,14 @@ class AccentNotifier extends Notifier<int> {
     state = prefs.getInt(_key) ?? 0;
   }
 
-  Future<void> set(int index) async {
-    if (index == state) return;
-    state = index;
+  Future<void> set(int value) async {
+    if (value == state) return;
+    state = value;
     final prefs = await ref.read(sharedPrefsProvider.future);
-    await prefs.setInt(_key, index);
+    await prefs.setInt(_key, value);
   }
+
+  Future<void> setCustom(Color color) => set(encodeCustomColor(color));
 }
 
 final accentProvider = NotifierProvider<AccentNotifier, int>(
@@ -666,14 +673,15 @@ final scrollStoreProvider = NotifierProvider<ScrollStore, Map<String, double>>(
 
 // ---- Resaltado de versículos por color ------------------------------------
 
-/// Mapa verseId -> índice de color, para el capítulo dado.
+/// Mapa verseId -> color guardado (índice predefinido o color libre), para el
+/// capítulo dado.
 final chapterHighlightsProvider =
     FutureProvider.family<Map<int, int>, ChapterRef>((ref, c) async {
       final repo = await ref.watch(repositoryProvider.future);
       return repo.highlightsForChapter(c.bookId, c.chapter);
     });
 
-/// Conteo de versículos por color: índice de color -> cantidad.
+/// Conteo de versículos por color: color guardado -> cantidad.
 final highlightCountsProvider = FutureProvider<Map<int, int>>((ref) async {
   final repo = await ref.watch(repositoryProvider.future);
   return repo.highlightCounts();
@@ -681,8 +689,80 @@ final highlightCountsProvider = FutureProvider<Map<int, int>>((ref) async {
 
 final versesByColorProvider = FutureProvider.family<List<SavedVerse>, int>((
   ref,
-  colorIndex,
+  color,
 ) async {
   final repo = await ref.watch(repositoryProvider.future);
-  return repo.versesByColor(colorIndex);
+  return repo.versesByColor(color);
 });
+
+/// Colores libres que el usuario ya usó para resaltar, del más reciente al
+/// más antiguo. Se guardan aparte de los resaltados para que sigan a mano en
+/// el selector aunque no haya ningún versículo con ese color.
+class CustomHighlightsNotifier extends Notifier<List<int>> {
+  static const _key = 'custom_highlights';
+  static const _max = 12;
+
+  @override
+  List<int> build() => const [];
+
+  Future<void> load() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    final raw = prefs.getStringList(_key);
+    if (raw == null) return;
+    state = raw
+        .map(int.tryParse)
+        .whereType<int>()
+        .where(isCustomColor)
+        .toList(growable: false);
+  }
+
+  /// Añade (o reordena al frente) un color libre y devuelve su valor.
+  Future<int> add(Color color) async {
+    final value = encodeCustomColor(color);
+    state = [
+      value,
+      ...state.where((v) => v != value),
+    ].take(_max).toList(growable: false);
+    await _save();
+    return value;
+  }
+
+  /// Cambia un color guardado por otro (el llamador recolorea en la base los
+  /// versículos que lo usaban). Devuelve el nuevo valor.
+  Future<int> replace(int oldValue, Color color) async {
+    final value = encodeCustomColor(color);
+    final next = <int>[];
+    for (final v in state) {
+      final mapped = v == oldValue ? value : v;
+      if (!next.contains(mapped)) next.add(mapped);
+    }
+    state = next;
+    await _save();
+    return value;
+  }
+
+  Future<void> remove(int value) async {
+    if (!state.contains(value)) return;
+    state = state.where((v) => v != value).toList(growable: false);
+    await _save();
+  }
+
+  Future<void> clear() async {
+    if (state.isEmpty) return;
+    state = const [];
+    await _save();
+  }
+
+  Future<void> _save() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setStringList(
+      _key,
+      state.map((v) => v.toString()).toList(growable: false),
+    );
+  }
+}
+
+final customHighlightsProvider =
+    NotifierProvider<CustomHighlightsNotifier, List<int>>(
+      CustomHighlightsNotifier.new,
+    );

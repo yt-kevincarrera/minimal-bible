@@ -14,6 +14,7 @@ import '../state/providers.dart';
 import '../state/tts_controller.dart';
 import '../theme.dart';
 import '../widgets/add_to_playlist_sheet.dart';
+import '../widgets/color_picker_sheet.dart';
 import 'chapters_screen.dart';
 
 class ReaderScreen extends ConsumerStatefulWidget {
@@ -423,74 +424,83 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _snack(choice == -1 ? 'Color quitado' : 'Versículos resaltados');
   }
 
+  /// Hoja de colores: los predefinidos (un toque, como siempre), los libres
+  /// que ya guardó el usuario y el arcoíris para elegir uno nuevo.
   Future<int?> _showColorPicker() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colors = context.appColors;
     return showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(
+      builder: (sheetCtx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'COLOR',
-                style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
-                  color: colors.inkSoft,
-                  letterSpacing: 1.6,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 16,
-                runSpacing: 14,
+          child: Consumer(
+            builder: (ctx, ref, _) {
+              final customs = ref.watch(customHighlightsProvider);
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (var i = 0; i < highlightSwatches.length; i++)
-                    Tooltip(
-                      message: highlightSwatches[i].name,
-                      child: GestureDetector(
-                        onTap: () => Navigator.pop(ctx, i),
-                        child: Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: highlightColorFor(i, isDark),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: colors.divider),
-                          ),
-                        ),
-                      ),
-                    ),
-                  Tooltip(
-                    message: 'Quitar color',
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(ctx, -1),
-                      child: Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: colors.bg,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: colors.divider),
-                        ),
-                        child: Icon(
-                          Icons.format_color_reset_outlined,
-                          size: 20,
-                          color: colors.inkSoft,
-                        ),
-                      ),
+                  Text(
+                    'COLOR',
+                    style: Theme.of(ctx).textTheme.labelSmall?.copyWith(
+                      color: colors.inkSoft,
+                      letterSpacing: 1.6,
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 14,
+                    children: [
+                      for (var i = 0; i < highlightSwatches.length; i++)
+                        ColorDot(
+                          color: highlightColorFor(i, isDark),
+                          tooltip: highlightSwatches[i].name,
+                          onTap: () => Navigator.pop(ctx, i),
+                        ),
+                      for (final value in customs)
+                        ColorDot(
+                          color: highlightColorFor(value, isDark),
+                          tooltip: highlightNameFor(value),
+                          onTap: () => Navigator.pop(ctx, value),
+                        ),
+                      ColorDot(
+                        tooltip: 'Elegir otro color',
+                        icon: Icons.add,
+                        onTap: () => _pickFreeColor(ctx, ref),
+                      ),
+                      ColorDot(
+                        color: colors.bg,
+                        tooltip: 'Quitar color',
+                        icon: Icons.format_color_reset_outlined,
+                        iconColor: colors.inkSoft,
+                        onTap: () => Navigator.pop(ctx, -1),
+                      ),
+                    ],
+                  ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
     );
+  }
+
+  /// Abre el selector libre y, si se elige un color, lo guarda en la paleta
+  /// del usuario (para tenerlo a un toque la próxima vez) y lo aplica.
+  Future<void> _pickFreeColor(BuildContext sheetContext, WidgetRef ref) async {
+    final color = await showFreeColorPicker(
+      sheetContext,
+      title: 'COLOR LIBRE',
+      initial: highlightSwatches.first.light,
+      preview: (ctx, color) => HighlightPreview(color: color),
+    );
+    if (color == null) return;
+    final value = await ref.read(customHighlightsProvider.notifier).add(color);
+    if (sheetContext.mounted) Navigator.pop(sheetContext, value);
   }
 
   void _snack(String msg) {

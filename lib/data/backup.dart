@@ -15,6 +15,7 @@ class BackupService {
   static const _prefKeys = [
     'theme_mode',
     'accent_index',
+    'custom_highlights',
     'font_scale',
     'line_height',
     'reader_layout',

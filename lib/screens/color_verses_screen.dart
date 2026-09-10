@@ -8,8 +8,9 @@ import '../theme.dart';
 import 'reader_screen.dart';
 
 class ColorVersesScreen extends ConsumerWidget {
-  final int colorIndex;
-  const ColorVersesScreen({super.key, required this.colorIndex});
+  /// Valor guardado del resaltado: índice predefinido o color libre.
+  final int color;
+  const ColorVersesScreen({super.key, required this.color});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -17,9 +18,7 @@ class ColorVersesScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final scale = ref.watch(fontScaleProvider);
-    final versesAsync = ref.watch(versesByColorProvider(colorIndex));
-    final swatch =
-        highlightSwatches[colorIndex.clamp(0, highlightSwatches.length - 1)];
+    final versesAsync = ref.watch(versesByColorProvider(color));
 
     return Scaffold(
       appBar: AppBar(
@@ -30,12 +29,12 @@ class ColorVersesScreen extends ConsumerWidget {
               width: 16,
               height: 16,
               decoration: BoxDecoration(
-                color: highlightColorFor(colorIndex, isDark),
+                color: highlightColorFor(color, isDark),
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 10),
-            Text(swatch.name),
+            Text(highlightNameFor(color)),
           ],
         ),
       ),
@@ -85,10 +84,10 @@ class ColorVersesScreen extends ConsumerWidget {
                       separatorBuilder: (_, _) =>
                           Divider(height: 1, color: colors.divider),
                       itemBuilder: (_, i) => _GroupTile(
-                        colorIndex: colorIndex,
+                        colorValue: color,
                         group: groups[i],
                         scale: scale,
-                        swatchColor: highlightColorFor(colorIndex, isDark),
+                        swatchColor: highlightColorFor(color, isDark),
                       ),
                     ),
                   ),
@@ -103,12 +102,12 @@ class ColorVersesScreen extends ConsumerWidget {
 }
 
 class _GroupTile extends ConsumerStatefulWidget {
-  final int colorIndex;
+  final int colorValue;
   final VerseGroup group;
   final double scale;
   final Color swatchColor;
   const _GroupTile({
-    required this.colorIndex,
+    required this.colorValue,
     required this.group,
     required this.scale,
     required this.swatchColor,
@@ -129,7 +128,7 @@ class _GroupTileState extends ConsumerState<_GroupTile> {
     final multi = group.verses.length > 1;
 
     return Slidable(
-      key: ValueKey('color_${widget.colorIndex}_${group.verses.first.verseId}'),
+      key: ValueKey('color_${widget.colorValue}_${group.verses.first.verseId}'),
       endActionPane: ActionPane(
         motion: const DrawerMotion(),
         extentRatio: 0.3,
@@ -138,7 +137,7 @@ class _GroupTileState extends ConsumerState<_GroupTile> {
             onPressed: (_) async {
               final repo = await ref.read(repositoryProvider.future);
               await repo.removeHighlights(group.verseIds);
-              ref.invalidate(versesByColorProvider(widget.colorIndex));
+              ref.invalidate(versesByColorProvider(widget.colorValue));
               ref.invalidate(highlightCountsProvider);
               ref.invalidate(chapterHighlightsProvider);
             },
