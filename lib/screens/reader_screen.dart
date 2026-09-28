@@ -1102,7 +1102,17 @@ class _ChapterText extends StatelessWidget {
                           : gestures[v.id]?.longPress,
                       style: verseStyle(v),
                     ),
-                    TextSpan(text: layout.versePerLine ? '\n' : '  '),
+                    if (!layout.versePerLine)
+                      const TextSpan(text: '  ')
+                    else if (v == block.verses.last)
+                      const TextSpan(text: '\n')
+                    else
+                      // Salto de verso + una línea vacía con letra pequeña:
+                      // separa los versículos sin tocar el interlineado.
+                      TextSpan(
+                        text: '\n\n',
+                        style: TextStyle(fontSize: 8 * scale, height: 1.0),
+                      ),
                   ],
                 ],
               ),

@@ -448,7 +448,7 @@ class ReaderLayout {
 
   const ReaderLayout({
     this.justify = true,
-    this.versePerLine = false,
+    this.versePerLine = true,
   });
 
   ReaderLayout copyWith({
@@ -473,7 +473,7 @@ class ReaderLayoutNotifier extends Notifier<ReaderLayout> {
     final m = json.decode(raw) as Map<String, dynamic>;
     state = ReaderLayout(
       justify: m['justify'] as bool? ?? true,
-      versePerLine: m['versePerLine'] as bool? ?? false,
+      versePerLine: m['versePerLine'] as bool? ?? true,
     );
   }
 
