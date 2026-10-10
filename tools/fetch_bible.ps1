@@ -47,9 +47,10 @@ foreach ($b in $books) {
         $chap = [ordered]@{}
         foreach ($item in $j.chapter.content) {
           if ($item.type -eq 'verse') {
-            $txt = (($item.content | ForEach-Object {
+            # Las piezas son líneas poéticas: unirlas sin espacio las pega.
+            $txt = ((($item.content | ForEach-Object {
               if ($_ -is [string]) { $_ } elseif ($_.text) { $_.text }
-            }) -join '').Trim()
+            }) -join ' ') -replace '\s+', ' ').Trim()
             if ($txt) { $chap["$($item.number)"] = $txt; $total++ }
           }
         }

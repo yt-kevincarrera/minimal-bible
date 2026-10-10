@@ -9,9 +9,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 import 'books.dart';
+import 'verse_text.dart';
 
 class BibleDatabase {
-  static const _dbVersion = 4;
+  static const _dbVersion = 5;
   static const _dbFile = 'minimal_bible.db';
 
   late final Database _db;
@@ -52,6 +53,7 @@ class BibleDatabase {
           // (versiones previas pudieron guardar acentos con mojibake).
           await _seedHeadings(db);
         }
+        if (oldV < 5) await _repairVerseText(db);
       },
     );
 
@@ -201,7 +203,7 @@ class BibleDatabase {
     // segundos (la primera vez que se abre la app): se hace en otro isolate
     // para que la pantalla de carga siga animándose. En web `compute` corre en
     // el mismo isolate, así que allí se comporta como antes.
-    final data = (await compute(json.decode, raw)) as Map<String, dynamic>;
+    final data = await compute(_decodeBible, raw);
 
     await db.transaction((txn) async {
       final batch = txn.batch();
@@ -232,7 +234,7 @@ class BibleDatabase {
           final verseNumbers =
               verses.keys.map(int.tryParse).whereType<int>().toList()..sort();
           for (final v in verseNumbers) {
-            final text = (verses['$v'] as String).trim();
+            final text = verses['$v'] as String;
             batch.insert('verses', {
               'book_id': book.id,
               'chapter': c,
@@ -247,5 +249,61 @@ class BibleDatabase {
     });
   }
 
+  /// Repara en sitio el texto ya sembrado por versiones previas (líneas
+  /// poéticas pegadas, ver verse_text.dart). Los ids no cambian, así que
+  /// resaltados y colecciones se conservan.
+  Future<void> _repairVerseText(Database db) async {
+    final rows = await db.rawQuery('SELECT id, text FROM verses');
+    if (rows.isEmpty) return;
+    final ids = [for (final r in rows) r['id'] as int];
+    final fixed = await compute(_normalizeAll, [
+      for (final r in rows) r['text'] as String,
+    ]);
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (var i = 0; i < ids.length; i++) {
+        if (fixed[i] == rows[i]['text']) continue;
+        batch.update(
+          'verses',
+          {'text': fixed[i]},
+          where: 'id = ?',
+          whereArgs: [ids[i]],
+        );
+      }
+      await batch.commit(noResult: true);
+      // verses_fts es de contenido externo y solo tiene trigger de INSERT.
+      await txn.execute("INSERT INTO verses_fts(verses_fts) VALUES('rebuild')");
+    });
+  }
+
   Future<void> close() async => _db.close();
+}
+
+/// Decodifica rv1960.json y normaliza el texto de cada versículo. Corre en
+/// otro isolate (ver [BibleDatabase._seedFromAsset]).
+Map<String, dynamic> _decodeBible(String raw) {
+  final data = json.decode(raw) as Map<String, dynamic>;
+  final verseMaps = [
+    for (final book in data.values)
+      if (book is Map)
+        for (final chapter in book.values)
+          if (chapter is Map) chapter,
+  ];
+  final properNouns = properNounsFrom([
+    for (final verses in verseMaps)
+      for (final t in verses.values)
+        if (t is String) t,
+  ]);
+  for (final verses in verseMaps) {
+    for (final key in verses.keys.toList()) {
+      final t = verses[key];
+      if (t is String) verses[key] = normalizeVerseText(t, properNouns);
+    }
+  }
+  return data;
+}
+
+List<String> _normalizeAll(List<String> texts) {
+  final properNouns = properNounsFrom(texts);
+  return [for (final t in texts) normalizeVerseText(t, properNouns)];
 }
