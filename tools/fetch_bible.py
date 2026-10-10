@@ -60,7 +60,8 @@ def verses_of(chapter_json):
                 parts.append(piece)
             elif isinstance(piece, dict) and piece.get('text'):
                 parts.append(piece['text'])
-        text = ''.join(parts).strip()
+        # Las piezas son líneas poéticas: unirlas sin espacio las pega.
+        text = ' '.join(' '.join(parts).split())
         if text:
             out[str(item['number'])] = text
     return out
